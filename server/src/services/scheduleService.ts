@@ -1,0 +1,219 @@
+import { getAIProvider } from "../providers/ai";
+import { ScheduleRepository } from "../repositories/scheduleRepository";
+import { StudentRepository } from "../repositories/studentRepository";
+import { SubjectRepository } from "../repositories/subjectRepository";
+import { GamificationRepository } from "../repositories/gamificationRepository";
+import { StudySessionRepository } from "../repositories/studySessionRepository";
+import { prisma } from "../config/prisma";
+import { AppError } from "../utils/AppError";
+import { Lang } from "../middleware/language";
+import { pick } from "../utils/localize";
+
+function mondayOf(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+export class ScheduleService {
+  constructor(
+    private ai = getAIProvider(),
+    private repo = new ScheduleRepository(prisma),
+    private studentRepo = new StudentRepository(prisma),
+    private subjectRepo = new SubjectRepository(prisma),
+    private gamificationRepo = new GamificationRepository(prisma),
+    private studySessionRepo = new StudySessionRepository(prisma)
+  ) {}
+
+  private localizeWeek(items: Awaited<ReturnType<ScheduleRepository["findByWeek"]>>, lang: Lang) {
+    return items.map(({ studySessions, ...i }) => ({
+      ...i,
+      subject: i.subject ? { ...i.subject, name: pick(i.subject.nameUz, i.subject.nameRu, lang) } : null,
+      // Real time actually spent on this task (summed across every completed
+      // attempt), never the planned Schedule.minutes — a student who finished
+      // in 12 minutes shouldn't see the 45-minute plan reported as fact.
+      // actualSeconds is the precise figure the UI formats as mm:ss; actualMinutes
+      // stays as a rounded convenience value for anything that only wants minutes.
+      actualSeconds: studySessions.filter((s) => s.status === "COMPLETED").reduce((sum, s) => sum + s.seconds, 0),
+      actualMinutes: studySessions.filter((s) => s.status === "COMPLETED").reduce((sum, s) => sum + s.minutes, 0),
+    }));
+  }
+
+  async getCurrentWeek(studentId: string, lang: Lang) {
+    const weekStart = mondayOf(new Date());
+    const existing = await this.repo.findByWeek(studentId, weekStart);
+    if (existing.length > 0) return this.localizeWeek(existing, lang);
+    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart, lang), lang);
+  }
+
+  async generateWeek(studentId: string, lang: Lang, weekStart = mondayOf(new Date())) {
+    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart, lang), lang);
+  }
+
+  private async generateWeekRaw(studentId: string, weekStart: Date, lang: Lang) {
+    const student = await this.studentRepo.findById(studentId);
+    if (!student) throw AppError.notFound("Student topilmadi");
+
+    const weak = student.subjectLevels
+      .filter((s) => s.level === "WEAK")
+      .map((s) => ({ code: s.subject.code, name: pick(s.subject.nameUz, s.subject.nameRu, lang) }));
+    const strong = student.subjectLevels
+      .filter((s) => s.level === "STRONG")
+      .map((s) => ({ code: s.subject.code, name: pick(s.subject.nameUz, s.subject.nameRu, lang) }));
+
+    // Subjects with no quiz result yet for this student — otherwise the week is limited
+    // to only whichever 1-2 subjects the student happens to have taken a quiz in.
+    const testedCodes = new Set(student.subjectLevels.map((s) => s.subject.code));
+    const allSubjects = await this.subjectRepo.findAll();
+    const neutral = allSubjects
+      .filter((s) => !testedCodes.has(s.code))
+      .map((s) => ({ code: s.code, name: pick(s.nameUz, s.nameRu, lang) }));
+
+    const plan = await this.ai.generateLearningPlan({
+      lang,
+      grade: student.grade,
+      weakSubjects: weak,
+      strongSubjects: strong,
+      neutralSubjects: neutral,
+      availableMinutesPerDay: 90,
+    });
+
+    const subjectIdByCode = new Map(allSubjects.map((s) => [s.code, s.id]));
+
+    await this.repo.deleteWeek(studentId, weekStart);
+    await this.repo.createMany(
+      studentId,
+      weekStart,
+      plan.days.map((d) => ({
+        dayOfWeek: d.dayOfWeek,
+        title: d.title,
+        subjectCode: d.subjectCode,
+        minutes: d.minutes,
+      })),
+      subjectIdByCode
+    );
+
+    return this.repo.findByWeek(studentId, weekStart);
+  }
+
+  async markStatus(studentId: string, scheduleId: string, status: "TODO" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED") {
+    const item = await this.repo.findOne(scheduleId, studentId);
+    if (!item) throw AppError.notFound("Reja topilmadi");
+    if (item.status === status) return { success: true };
+
+    await this.repo.updateStatus(scheduleId, studentId, status);
+
+    // StudySession side-effect — records the real start/end of this attempt at the task.
+    // Kept independent of the Progress crediting below: Progress still credits the
+    // Schedule item's *planned* minutes exactly as before (unchanged), while StudySession
+    // separately captures the *real* elapsed time for future use (e.g. AI analysis).
+    if (status === "IN_PROGRESS") {
+      const active = await this.studySessionRepo.findActive(scheduleId, studentId);
+      if (!active) {
+        await this.studySessionRepo.start(studentId, scheduleId, item.subjectId, "SCHEDULE");
+      }
+    } else if (status === "COMPLETED") {
+      const active = await this.studySessionRepo.findActive(scheduleId, studentId);
+      if (active) {
+        const completedAt = new Date();
+        const elapsedSeconds = Math.max(0, Math.round((completedAt.getTime() - active.startedAt.getTime()) / 1000));
+        await this.studySessionRepo.complete(active.id, completedAt, Math.round(elapsedSeconds / 60), elapsedSeconds);
+      }
+    }
+
+    // Crediting is driven by the actual COMPLETED transition (either direction), not by
+    // which specific statuses are involved — so this stays correct whether the student
+    // goes TODO -> IN_PROGRESS -> COMPLETED, or jumps straight to COMPLETED, and an undo
+    // (COMPLETED -> anything else) cleanly reverses the same amount it credited.
+    const wasCompleted = item.status === "COMPLETED";
+    const nowCompleted = status === "COMPLETED";
+    if (!wasCompleted && nowCompleted) {
+      await this.gamificationRepo.upsertTodayProgress(studentId, item.minutes, 1, 0);
+    } else if (wasCompleted && !nowCompleted) {
+      await this.gamificationRepo.upsertTodayProgress(studentId, -item.minutes, -1, 0);
+    }
+
+    return { success: true };
+  }
+
+  /**
+   * Best-effort automatic transition used when quiz activity implies real study on a
+   * subject (see QuizService). Only ever moves TODAY's schedule item(s) for the given
+   * subject forward (TODO -> IN_PROGRESS, or up to COMPLETED) — never backward, and
+   * never touches items already at or past the target status.
+   *
+   * Deliberately does NOT call gamificationRepo.upsertTodayProgress: the caller (quiz
+   * submission) already credits Progress for this same real-world action, so crediting
+   * here too would double-count. StudySession bookkeeping still applies, so the
+   * schedule item's real elapsed time is still captured like any other completion.
+   *
+   * When completing (score provided) and no matching item exists for today — the quiz
+   * was for a subject outside today's plan — a new COMPLETED item is inserted instead
+   * of the activity going unrecorded, so today's Schedule reflects all real study, not
+   * only what was originally planned.
+   */
+  async autoTransitionForSubject(
+    studentId: string,
+    subjectId: string,
+    targetStatus: "IN_PROGRESS" | "COMPLETED",
+    score?: number,
+    lang: Lang = "uz",
+    // Real quiz-taking duration (start-to-submit), supplied by the caller when known.
+    // Authoritative over inferring elapsed time from StudySession.startedAt — and,
+    // unlike that inference, still available even when no StudySession was ever
+    // started for this item (e.g. a subject outside today's plan).
+    elapsedSeconds?: number
+  ) {
+    const today = new Date();
+    const weekStart = mondayOf(today);
+    const jsDay = today.getDay();
+    const isoDay = jsDay === 0 ? 7 : jsDay; // Schedule.dayOfWeek is 1 (Monday) .. 7 (Sunday)
+
+    const items = await this.repo.findByWeek(studentId, weekStart);
+    const todays = items.filter((i) => i.dayOfWeek === isoDay && i.subjectId === subjectId);
+
+    for (const item of todays) {
+      if (targetStatus === "IN_PROGRESS") {
+        if (item.status !== "TODO") continue;
+        await this.repo.updateStatus(item.id, studentId, "IN_PROGRESS");
+        const active = await this.studySessionRepo.findActive(item.id, studentId);
+        if (!active) await this.studySessionRepo.start(studentId, item.id, item.subjectId, "QUIZ");
+      } else {
+        if (item.status === "COMPLETED") continue;
+        await this.repo.updateStatus(item.id, studentId, "COMPLETED", score);
+        const active = await this.studySessionRepo.findActive(item.id, studentId);
+        const completedAt = new Date();
+        if (elapsedSeconds !== undefined) {
+          const minutes = Math.round(elapsedSeconds / 60);
+          if (active) {
+            await this.studySessionRepo.complete(active.id, completedAt, minutes, elapsedSeconds);
+          } else {
+            const startedAt = new Date(completedAt.getTime() - elapsedSeconds * 1000);
+            await this.studySessionRepo.createCompleted(studentId, item.id, item.subjectId, startedAt, completedAt, minutes, elapsedSeconds, "QUIZ");
+          }
+        } else if (active) {
+          const elapsed = Math.max(0, Math.round((completedAt.getTime() - active.startedAt.getTime()) / 1000));
+          await this.studySessionRepo.complete(active.id, completedAt, Math.round(elapsed / 60), elapsed);
+        }
+      }
+    }
+
+    if (targetStatus === "COMPLETED" && todays.length === 0 && score !== undefined) {
+      const subject = await this.subjectRepo.findById(subjectId);
+      if (subject) {
+        const name = pick(subject.nameUz, subject.nameRu, lang);
+        const title = pick(`${name} bo'yicha test`, `Тест по предмету «${name}»`, lang);
+        const created = await this.repo.createCompletedNow(studentId, weekStart, isoDay, subjectId, title, 20, score);
+        if (elapsedSeconds !== undefined) {
+          const completedAt = new Date();
+          const startedAt = new Date(completedAt.getTime() - elapsedSeconds * 1000);
+          const minutes = Math.round(elapsedSeconds / 60);
+          await this.studySessionRepo.createCompleted(studentId, created.id, subjectId, startedAt, completedAt, minutes, elapsedSeconds, "QUIZ");
+        }
+      }
+    }
+  }
+}

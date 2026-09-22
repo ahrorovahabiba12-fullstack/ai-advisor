@@ -1,0 +1,616 @@
+// AI Career & Learning Advisor — Prisma schema
+// PostgreSQL is the single source of truth for the relational model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------- ENUMS ----------
+
+enum Role {
+  STUDENT
+  PARENT
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum SubjectLevelEnum {
+  WEAK
+  MEDIUM
+  STRONG
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  PAUSED
+  ARCHIVED
+}
+
+enum ScheduleStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+enum AIMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum RecommendationType {
+  SUBJECT
+  SKILL
+  COURSE
+  CAREER
+  UNIVERSITY
+  SCHEDULE
+}
+
+enum StudySessionStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+// Distinguishes a manually-tracked schedule session (whose planned minutes are
+// separately credited to Progress.studyMinutes) from a quiz-triggered one (whose
+// real elapsed time is NOT in Progress.studyMinutes, by design — see quizService).
+// Needed so daily/weekly activity reporting can add real quiz time back in
+// without double-counting schedule sessions that were already credited.
+enum StudySessionSource {
+  SCHEDULE
+  QUIZ
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+enum NotificationType {
+  STREAK
+  QUIZ_REMINDER
+  GOAL
+  PARENT_REPORT
+  SYSTEM
+  BADGE
+}
+
+// ---------- CORE IDENTITY ----------
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String
+  fullName     String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  student Student?
+  parent  Parent?
+
+  refreshTokens RefreshToken[]
+  notifications Notification[] @relation("NotificationRecipient")
+
+  @@index([role])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Parent {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  students Student[]
+
+  reports      ParentReport[]
+  digests      ParentWeeklyDigest[]
+  subscription Subscription?
+}
+
+model Student {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  parentId        String?
+  grade           Int
+  region          String?
+  interests       String[] @default([])
+  favoriteSubjects String[] @default([])
+  goals           String[] @default([])
+  careerInterests String[] @default([])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent Parent? @relation(fields: [parentId], references: [id], onDelete: SetNull)
+
+  subjectLevels    SubjectLevel[]
+  quizResults      QuizResult[]
+  questionAttempts QuestionAttempt[]
+  progress         Progress[]
+  schedules        Schedule[]
+  recommendations  Recommendation[]
+  conversations    AIConversation[]
+  goalsList        StudentGoal[]
+  studySessions    StudySession[]
+  dailyCoachEntries DailyCoach[]
+  achievements     Achievement[]
+  careerRecs       CareerRecommendation[]
+  universityRecs   UniversityRecommendation[]
+  universityFits   UniversityFit[]
+  consistencyScores ConsistencyScore[]
+  weeklyDigests    ParentWeeklyDigest[]
+
+  @@index([parentId])
+}
+
+// ---------- ACADEMIC CATALOG ----------
+
+model Subject {
+  id     String  @id @default(uuid())
+  code   String  @unique
+  nameUz String
+  nameRu String
+  active Boolean @default(true)
+
+  subjectLevels SubjectLevel[]
+  quizResults   QuizResult[]
+  schedules     Schedule[]
+  questions     Question[]
+}
+
+model SubjectLevel {
+  id        String           @id @default(uuid())
+  studentId String
+  subjectId String
+  level     SubjectLevelEnum
+  score     Float
+  source    String
+  updatedAt DateTime         @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, subjectId])
+  @@index([studentId])
+}
+
+model Question {
+  id           String   @id @default(uuid())
+  subjectId    String
+  grade        Int
+  text         String
+  textRu       String
+  options      String[]
+  optionsRu    String[]
+  correctIndex Int
+  createdAt    DateTime @default(now())
+
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  attempts QuestionAttempt[]
+
+  @@index([subjectId, grade])
+}
+
+// One row per (student, question) answer, across every quiz attempt —
+// drives adaptive question selection in QuizService.startQuiz: a question
+// answered wrong last time is weighted to reappear sooner, one answered
+// right is weighted to appear only rarely (never permanently excluded).
+model QuestionAttempt {
+  id          String   @id @default(uuid())
+  studentId   String
+  questionId  String
+  correct     Boolean
+  attemptedAt DateTime @default(now())
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, questionId, attemptedAt])
+}
+
+model QuizResult {
+  id          String           @id @default(uuid())
+  studentId   String
+  subjectId   String
+  grade       Int
+  score       Float
+  level       SubjectLevelEnum
+  attemptDate DateTime
+  createdAt   DateTime         @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, subjectId, attemptDate])
+}
+
+// ---------- PROGRESS / SCHEDULE ----------
+
+model Progress {
+  id              String   @id @default(uuid())
+  studentId       String
+  date            DateTime
+  completedTasks  Int      @default(0)
+  studyMinutes    Int      @default(0)
+  scoreDelta      Float    @default(0)
+  createdAt       DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, date])
+}
+
+model Schedule {
+  id         String         @id @default(uuid())
+  studentId  String
+  weekStart  DateTime
+  dayOfWeek  Int
+  title      String
+  subjectId  String?
+  minutes    Int
+  status     ScheduleStatus @default(TODO)
+  source     String
+  lastScore  Int?
+  createdAt  DateTime       @default(now())
+
+  student Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  studySessions StudySession[]
+
+  @@index([studentId, weekStart])
+}
+
+// ---------- RECOMMENDATIONS ----------
+
+model Recommendation {
+  id         String             @id @default(uuid())
+  studentId  String
+  type       RecommendationType
+  title      String
+  payload    Json
+  confidence Float
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+}
+
+model Career {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  nameUz      String
+  nameRu      String
+  description String
+  requiredSubjects String[]
+  requiredSkills   String[]
+  minGrade    Int     @default(9)
+
+  recommendations CareerRecommendation[]
+  roadmapSteps    CareerRoadmapStep[]
+}
+
+model CareerRecommendation {
+  id         String   @id @default(uuid())
+  studentId  String
+  careerId   String
+  matchScore Float
+  reasoning  String
+  createdAt  DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  career  Career  @relation(fields: [careerId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, careerId])
+  @@index([studentId])
+}
+
+model CareerRoadmapStep {
+  id            String   @id @default(uuid())
+  careerId      String
+  order         Int
+  title         String
+  titleRu       String
+  description   String
+  descriptionRu String
+  tasks         String[] @default([])
+  tasksRu       String[] @default([])
+  resources     String[] @default([])
+  resourcesRu   String[] @default([])
+  // Parallel to tasks/resources by index (same convention as tasksRu/resourcesRu):
+  // "" means that item has no actionable link. taskLinks are in-app routes
+  // (e.g. "/quiz"); resourceUrls are external sites — only ever a resource's
+  // own well-known homepage, never a guessed deep link.
+  taskLinks     String[] @default([])
+  resourceUrls  String[] @default([])
+
+  career Career @relation(fields: [careerId], references: [id], onDelete: Cascade)
+
+  @@index([careerId, order])
+}
+
+model University {
+  id            String  @id @default(uuid())
+  nameUz        String
+  nameRu        String
+  description   String  @default("")
+  descriptionRu String  @default("")
+  country       String
+  countryRu     String  @default("")
+  city          String
+  cityRu        String  @default("")
+  region        String  @default("")
+  programs      String[]
+  minGrade      Int     @default(9)
+  // "" means no verified official site yet — never a guessed/fabricated URL.
+  website       String  @default("")
+
+  recommendations UniversityRecommendation[]
+  fits            UniversityFit[]
+}
+
+model UniversityRecommendation {
+  id           String   @id @default(uuid())
+  studentId    String
+  universityId String
+  matchScore   Float
+  reasoning    String
+  createdAt    DateTime @default(now())
+
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, universityId])
+  @@index([studentId])
+}
+
+model UniversityFit {
+  id           String   @id @default(uuid())
+  studentId    String
+  universityId String
+  score        Float
+  factors      Json
+  generatedAt  DateTime @default(now())
+
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, score])
+}
+
+// ---------- GOALS / SKILLS / SESSIONS ----------
+
+model StudentGoal {
+  id              String     @id @default(uuid())
+  studentId       String
+  title           String
+  description     String?
+  targetDate      DateTime?
+  status          GoalStatus @default(ACTIVE)
+  progressPercent Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studySessions StudySession[]
+
+  @@index([studentId, status])
+}
+
+model StudySession {
+  id          String              @id @default(uuid())
+  studentId   String
+  goalId      String?
+  subjectId   String?
+  scheduleId  String?
+  startedAt   DateTime
+  completedAt DateTime?
+  minutes     Int
+  // Full elapsed time in seconds — `minutes` alone rounds sub-minute
+  // sessions (e.g. a 40s quiz) down to 0, hiding real activity from the UI.
+  seconds     Int                 @default(0)
+  result      String?
+  status      StudySessionStatus  @default(PLANNED)
+  source      StudySessionSource  @default(SCHEDULE)
+
+  student  Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  goal     StudentGoal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  schedule Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([studentId])
+  @@index([scheduleId, status])
+}
+
+model DailyCoach {
+  id                 String   @id @default(uuid())
+  studentId          String
+  coachDate          DateTime
+  message            String
+  recommendedActions Json
+  completed          Boolean  @default(false)
+  lang               String   @default("uz")
+  // Whether the student had already completed something today at the moment
+  // this message was written — lets getToday() tell a message that's gone
+  // stale (e.g. "let's start today" cached from the morning, before the
+  // student actually did something) from one that's still accurate, without
+  // regenerating on every request.
+  wasActiveWhenGenerated Boolean @default(false)
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, coachDate])
+}
+
+// ---------- GAMIFICATION ----------
+
+model Badge {
+  id            String @id @default(uuid())
+  code          String @unique
+  nameUz        String
+  nameRu        String
+  description   String
+  descriptionRu String
+  icon          String
+
+  achievements Achievement[]
+}
+
+model Achievement {
+  id         String   @id @default(uuid())
+  studentId  String
+  badgeId    String
+  unlockedAt DateTime @default(now())
+  metadata   Json?
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  badge   Badge   @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, badgeId])
+  @@index([studentId])
+}
+
+model ConsistencyScore {
+  id            String   @id @default(uuid())
+  studentId     String
+  periodStart   DateTime
+  periodEnd     DateTime
+  score         Float
+  activeDays    Int
+  plannedDays   Int
+  completedDays Int
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, periodStart])
+}
+
+// ---------- AI CHAT ----------
+
+model AIConversation {
+  id        String   @id @default(uuid())
+  studentId String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student  Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  messages AIMessage[]
+
+  @@index([studentId, updatedAt])
+}
+
+model AIMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  role           AIMessageRole
+  content        String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------- PARENT ----------
+
+model ParentReport {
+  id        String   @id @default(uuid())
+  parentId  String
+  studentId String
+  summary   String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  parent Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId, studentId, createdAt])
+}
+
+model ParentWeeklyDigest {
+  id             String   @id @default(uuid())
+  parentId       String
+  studentId      String
+  weekStart      DateTime
+  summary        String
+  strengths      String[]
+  attentionAreas String[]
+  nextSteps      String[]
+  generatedAt    DateTime @default(now())
+
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId, studentId, weekStart])
+}
+
+// ---------- SUBSCRIPTION / NOTIFICATIONS ----------
+
+model Subscription {
+  id        String              @id @default(uuid())
+  parentId  String              @unique
+  plan      SubscriptionPlan    @default(FREE)
+  status    SubscriptionStatus  @default(ACTIVE)
+  provider  String              @default("mock")
+  renewsAt  DateTime?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  parent Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId])
+}
+
+model Notification {
+  id          String           @id @default(uuid())
+  recipientId String
+  type        NotificationType
+  title       String
+  body        String
+  read        Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  recipient User @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, createdAt])
+}

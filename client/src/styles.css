@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-page: #f7f6fd;
+  --bg-card: #ffffff;
+  --text-primary: #1a1530;
+  --text-secondary: #635f77;
+  --border-subtle: #ece9fb;
+}
+
+.dark {
+  --bg-page: #14101f;
+  --bg-card: #1e1832;
+  --text-primary: #f4f2ff;
+  --text-secondary: #a79fd1;
+  --border-subtle: #2c2447;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply rounded-card bg-[var(--bg-card)] shadow-card border border-[var(--border-subtle)] p-5;
+  }
+  .btn-primary {
+    @apply bg-brand-gradient text-white font-semibold rounded-xl px-5 py-3 transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-secondary {
+    @apply bg-white border border-brand-200 text-brand-600 font-semibold rounded-xl px-5 py-3 hover:bg-brand-50 transition-colors disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .input-field {
+    @apply w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand-400 transition-shadow;
+  }
+  .skeleton {
+    @apply animate-pulse bg-brand-100/60 dark:bg-brand-900/40 rounded-xl;
+  }
+}
