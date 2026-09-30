@@ -14,13 +14,10 @@ export default function Settings() {
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const handleLogout = async () => {
-    const refreshToken = localStorage.getItem("refreshToken");
-    if (refreshToken) {
-      try {
-        await authApi.logout(refreshToken);
-      } catch {
-        // Logging out locally still succeeds even if the network call fails.
-      }
+    try {
+      await authApi.logout();
+    } catch {
+      // Logging out locally still succeeds even if the network call fails.
     }
     clearSession();
     navigate("/login");

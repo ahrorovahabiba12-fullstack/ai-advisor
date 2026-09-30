@@ -14,7 +14,7 @@ export class ScheduleRepository {
   createMany(
     studentId: string,
     weekStart: Date,
-    items: { dayOfWeek: number; title: string; subjectCode?: string; minutes: number }[],
+    items: { dayOfWeek: number; title: string; titleRu: string; subjectCode?: string; minutes: number }[],
     subjectIdByCode: Map<string, string>
   ) {
     return this.db.schedule.createMany({
@@ -23,6 +23,7 @@ export class ScheduleRepository {
         weekStart,
         dayOfWeek: i.dayOfWeek,
         title: i.title,
+        titleRu: i.titleRu,
         subjectId: i.subjectCode ? subjectIdByCode.get(i.subjectCode) : undefined,
         minutes: i.minutes,
         status: ScheduleStatus.TODO,
@@ -54,6 +55,7 @@ export class ScheduleRepository {
     dayOfWeek: number,
     subjectId: string,
     title: string,
+    titleRu: string,
     minutes: number,
     lastScore: number
   ) {
@@ -63,6 +65,7 @@ export class ScheduleRepository {
         weekStart,
         dayOfWeek,
         title,
+        titleRu,
         subjectId,
         minutes,
         status: ScheduleStatus.COMPLETED,
@@ -72,8 +75,13 @@ export class ScheduleRepository {
     });
   }
 
-  deleteWeek(studentId: string, weekStart: Date) {
-    return this.db.schedule.deleteMany({ where: { studentId, weekStart } });
+  // Only TODO items are safe to clear before writing a freshly-generated
+  // plan — an item the student has already started (IN_PROGRESS) or
+  // finished (COMPLETED) carries real progress, and StudySession rows
+  // cascade-delete with their Schedule row, so wiping it here would erase
+  // genuine history, not just a stale plan.
+  deleteTodoItems(studentId: string, weekStart: Date) {
+    return this.db.schedule.deleteMany({ where: { studentId, weekStart, status: ScheduleStatus.TODO } });
   }
 
   findRecent(studentId: string, since: Date) {

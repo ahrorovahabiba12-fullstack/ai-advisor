@@ -232,7 +232,6 @@ export class RuleBasedProvider implements AIProvider {
   }
 
   async generateLearningPlan(input: LearningPlanInput): Promise<LearningPlanOutput> {
-    const { lang } = input;
     const days: LearningPlanOutput["days"] = [];
     // Weak subjects are entered twice into the rotation pool so they come up roughly
     // twice as often across the week, not just for longer sessions when their turn
@@ -245,13 +244,15 @@ export class RuleBasedProvider implements AIProvider {
     // is a last resort for the (practically impossible) case where even that is empty.
     const pool = testedPool.length > 0 ? testedPool : input.neutralSubjects;
     const weakCodes = new Set(input.weakSubjects.map((s) => s.code));
-    const fallback = { code: "general", name: L("Umumiy takrorlash", "Общее повторение", lang) };
+    const fallback = { code: "general", nameUz: "Umumiy takrorlash", nameRu: "Общее повторение" };
     // A second, lighter block per day brings in subjects beyond the tested weak/strong
     // set — neutral, everyday-useful subjects the student hasn't necessarily tested —
     // so a week isn't limited to only the 1-2 subjects that happen to have a quiz result.
     const secondaryPool = input.neutralSubjects.length > 0 ? input.neutralSubjects : input.strongSubjects;
 
-    for (let d = 1; d <= 7; d++) {
+    // Monday(1)..Saturday(6) only — the weekly plan deliberately excludes Sunday(7),
+    // a rest day with no scheduled study.
+    for (let d = 1; d <= 6; d++) {
       const primary = pool[(d - 1) % Math.max(pool.length, 1)] ?? fallback;
       days.push({
         dayOfWeek: d,
@@ -259,7 +260,8 @@ export class RuleBasedProvider implements AIProvider {
         minutes: weakCodes.has(primary.code)
           ? Math.min(60, input.availableMinutesPerDay)
           : Math.min(30, input.availableMinutesPerDay),
-        title: L(`${primary.name} bo'yicha mashq`, `Практика по предмету «${primary.name}»`, lang),
+        title: `${primary.nameUz} bo'yicha mashq`,
+        titleRu: `Практика по предмету «${primary.nameRu}»`,
       });
 
       const secondaryCandidates = secondaryPool.filter((s) => s.code !== primary.code);
@@ -269,11 +271,8 @@ export class RuleBasedProvider implements AIProvider {
           dayOfWeek: d,
           subjectCode: secondary.code,
           minutes: Math.min(20, input.availableMinutesPerDay - 30),
-          title: L(
-            `${secondary.name} bo'yicha qo'shimcha mashq`,
-            `Дополнительная практика по предмету «${secondary.name}»`,
-            lang
-          ),
+          title: `${secondary.nameUz} bo'yicha qo'shimcha mashq`,
+          titleRu: `Дополнительная практика по предмету «${secondary.nameRu}»`,
         });
       }
     }

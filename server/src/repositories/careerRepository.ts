@@ -27,6 +27,16 @@ export class CareerRepository {
     });
   }
 
+  // A career the AI no longer returns (dropped interest match, or this run fell back
+  // to a different provider than the one that produced the stale row) must not keep
+  // showing its old reasoning forever — including in whatever language/provider that
+  // old row happened to be generated with.
+  deleteRecommendationsExcept(studentId: string, keepCareerIds: string[]) {
+    return this.db.careerRecommendation.deleteMany({
+      where: { studentId, careerId: { notIn: keepCareerIds } },
+    });
+  }
+
   findUniversities() {
     return this.db.university.findMany();
   }

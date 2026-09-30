@@ -92,7 +92,39 @@ describe("QuizService — server-side scoring (real DB)", () => {
     expect(saved).toMatchObject({ studentId: student.id, subjectId: subject.id, score: 50 });
   });
 
-  it("auto-transitions today's matching schedule item(s) to COMPLETED on submit, passing the real score and lang, without asking ScheduleService to credit Progress again", async () => {
+  it("rejects a submission whose declared subjectId doesn't match the actual questions' subject", async () => {
+    const { student } = await createStudentUser({ grade: 8 });
+    const realSubject = await createSubject({ code: "MATH" });
+    const otherSubject = await createSubject({ code: "ENGLISH" });
+    const q1 = await prisma.question.create({
+      data: { subjectId: realSubject.id, grade: 8, text: "a", textRu: "a", options: [], optionsRu: [], correctIndex: 1 },
+    });
+
+    // Client answers real MATH questions but declares them as ENGLISH — must
+    // never let ENGLISH's QuizResult/SubjectLevel get scored from MATH's pool.
+    await expect(
+      makeService().submitQuiz(student.id, otherSubject.id, 8, [{ questionId: q1.id, selectedIndex: 1 }], "uz")
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    const saved = await prisma.quizResult.findFirst({ where: { studentId: student.id } });
+    expect(saved).toBeNull();
+  });
+
+  it("rejects a submission whose declared grade doesn't match the actual questions' grade", async () => {
+    const { student } = await createStudentUser({ grade: 8 });
+    const subject = await createSubject();
+    const q1 = await prisma.question.create({
+      data: { subjectId: subject.id, grade: 8, text: "a", textRu: "a", options: [], optionsRu: [], correctIndex: 1 },
+    });
+
+    // Real grade-8 question, but the request claims grade 4 — must be rejected
+    // rather than silently logging a grade-4 QuizResult from grade-8 content.
+    await expect(
+      makeService().submitQuiz(student.id, subject.id, 4, [{ questionId: q1.id, selectedIndex: 1 }], "uz")
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("auto-transitions today's matching schedule item(s) to COMPLETED on submit, passing the real score, without asking ScheduleService to credit Progress again", async () => {
     const { student } = await createStudentUser({ grade: 8 });
     const subject = await createSubject();
     const q1 = await prisma.question.create({
@@ -101,7 +133,7 @@ describe("QuizService — server-side scoring (real DB)", () => {
 
     await makeService().submitQuiz(student.id, subject.id, 8, [{ questionId: q1.id, selectedIndex: 1 }], "ru");
 
-    expect(scheduleService.autoTransitionForSubject).toHaveBeenCalledWith(student.id, subject.id, "COMPLETED", 100, "ru", undefined);
+    expect(scheduleService.autoTransitionForSubject).toHaveBeenCalledWith(student.id, subject.id, "COMPLETED", 100, undefined);
   });
 
   it("computes and passes real elapsed seconds to autoTransitionForSubject when the client echoes back startQuiz's startedAt", async () => {
@@ -119,8 +151,8 @@ describe("QuizService — server-side scoring (real DB)", () => {
     expect(call[0]).toBe(student.id);
     expect(call[1]).toBe(subject.id);
     expect(call[2]).toBe("COMPLETED");
-    expect(call[5]).toBeGreaterThanOrEqual(7);
-    expect(call[5]).toBeLessThanOrEqual(10);
+    expect(call[4]).toBeGreaterThanOrEqual(7);
+    expect(call[4]).toBeLessThanOrEqual(10);
   });
 
   it("still returns the quiz result even if the schedule auto-transition fails on submit", async () => {

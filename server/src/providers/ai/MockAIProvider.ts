@@ -29,7 +29,7 @@ export class MockAIProvider implements AIProvider {
   }
 
   async generateLearningPlan(_i: LearningPlanInput): Promise<LearningPlanOutput> {
-    return { days: [{ dayOfWeek: 1, subjectCode: "MATH", minutes: 30, title: "Demo mashg'ulot" }] };
+    return { days: [{ dayOfWeek: 1, subjectCode: "MATH", minutes: 30, title: "Demo mashg'ulot", titleRu: "Демо-занятие" }] };
   }
 
   async chat(_c: ChatContext, _h: ChatMessageInput[], _m: string): Promise<string> {

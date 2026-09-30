@@ -4,6 +4,7 @@ import { Sparkles, Brain, TrendingUp, GraduationCap, ClipboardCheck } from "luci
 import { Button } from "../../components/ui/Button";
 import { LanguageSwitcher } from "../../components/layout/LanguageSwitcher";
 import { ThemeToggle } from "../../components/layout/ThemeToggle";
+import { LogoIcon } from "../../components/icons/LogoIcon";
 
 const FEATURES = [
   { icon: ClipboardCheck, titleKey: "landing.feature1Title", descKey: "landing.feature1Desc" },
@@ -62,7 +63,7 @@ export default function Landing() {
       <header className="max-w-7xl mx-auto flex items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2 font-bold text-lg">
           <div className="w-9 h-9 rounded-xl bg-brand-gradient flex items-center justify-center text-white">
-            <Sparkles size={18} />
+            <LogoIcon size={18} />
           </div>
           {t("app.name")}
         </div>

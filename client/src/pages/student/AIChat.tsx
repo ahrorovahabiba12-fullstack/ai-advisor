@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Sparkles, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import { chatApi } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
 import { Skeleton } from "../../components/ui/primitives";
+import { LogoIcon } from "../../components/icons/LogoIcon";
 
 export default function AIChat() {
   const { t } = useTranslation();
@@ -45,12 +46,9 @@ export default function AIChat() {
     <div className="flex flex-col h-[calc(100vh-8rem)] lg:h-[calc(100vh-3rem)]">
       <div className="flex items-center gap-3 mb-4">
         <div className="w-10 h-10 rounded-xl bg-brand-gradient flex items-center justify-center text-white">
-          <Sparkles size={20} />
+          <LogoIcon size={20} />
         </div>
-        <div>
-          <h1 className="font-bold text-lg">{t("aiChat.title")}</h1>
-          <p className="text-xs text-emerald-600 font-medium">● {t("aiChat.online")}</p>
-        </div>
+        <h1 className="font-bold text-lg">{t("aiChat.title")}</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-4">

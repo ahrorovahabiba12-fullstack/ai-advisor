@@ -26,15 +26,14 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: loadStoredUser(),
+  // Only the non-sensitive user object is cached client-side — the access
+  // and refresh tokens themselves live in httpOnly cookies the server set on
+  // this same response, never in anything client-side JS can read.
   setSession: (session) => {
-    localStorage.setItem("accessToken", session.accessToken);
-    localStorage.setItem("refreshToken", session.refreshToken);
     localStorage.setItem("user", JSON.stringify(session.user));
     set({ user: session.user });
   },
   clearSession: () => {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
     set({ user: null });
   },

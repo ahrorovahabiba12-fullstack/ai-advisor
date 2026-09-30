@@ -222,8 +222,12 @@ export default function Profile() {
       </div>
 
       <Card className="flex flex-col gap-6">
-        <RegionPicker value={region} onChange={setRegion} />
-        <FavoriteSubjectPicker values={favoriteSubjects} onChange={setFavoriteSubjects} />
+        {data?.careerModuleVisible && (
+          <>
+            <RegionPicker value={region} onChange={setRegion} />
+            <FavoriteSubjectPicker values={favoriteSubjects} onChange={setFavoriteSubjects} />
+          </>
+        )}
         <TagEditor
           label={t("profile.interests")}
           icon={<Lightbulb size={15} />}

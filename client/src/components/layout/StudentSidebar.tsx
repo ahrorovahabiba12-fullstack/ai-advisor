@@ -12,6 +12,7 @@ import {
   Settings,
 } from "lucide-react";
 import clsx from "clsx";
+import { LogoIcon } from "../icons/LogoIcon";
 
 export function StudentSidebar({ careerVisible }: { careerVisible: boolean }) {
   const { t } = useTranslation();
@@ -29,10 +30,10 @@ export function StudentSidebar({ careerVisible }: { careerVisible: boolean }) {
   ];
 
   return (
-    <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-[#1a1533] text-white min-h-screen px-4 py-6 gap-1">
+    <aside className="hidden lg:flex flex-col w-64 shrink-0 sticky top-0 h-screen overflow-y-auto bg-[#1a1533] text-white px-4 py-6 gap-1">
       <div className="flex items-center gap-2 font-bold text-lg px-2 mb-6">
         <div className="w-9 h-9 rounded-xl bg-brand-gradient flex items-center justify-center">
-          <Sparkles size={18} />
+          <LogoIcon size={18} />
         </div>
         AI Advisor
       </div>

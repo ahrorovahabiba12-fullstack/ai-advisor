@@ -29,8 +29,11 @@ export class ScheduleService {
   ) {}
 
   private localizeWeek(items: Awaited<ReturnType<ScheduleRepository["findByWeek"]>>, lang: Lang) {
-    return items.map(({ studySessions, ...i }) => ({
+    return items.map(({ studySessions, titleRu, ...i }) => ({
       ...i,
+      // Rows created before titleRu existed have it as "" — fall back to the
+      // original (Uzbek) title rather than showing a blank.
+      title: pick(i.title, titleRu || i.title, lang),
       subject: i.subject ? { ...i.subject, name: pick(i.subject.nameUz, i.subject.nameRu, lang) } : null,
       // Real time actually spent on this task (summed across every completed
       // attempt), never the planned Schedule.minutes — a student who finished
@@ -46,23 +49,28 @@ export class ScheduleService {
     const weekStart = mondayOf(new Date());
     const existing = await this.repo.findByWeek(studentId, weekStart);
     if (existing.length > 0) return this.localizeWeek(existing, lang);
-    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart, lang), lang);
+    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart), lang);
   }
 
   async generateWeek(studentId: string, lang: Lang, weekStart = mondayOf(new Date())) {
-    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart, lang), lang);
+    return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart), lang);
   }
 
-  private async generateWeekRaw(studentId: string, weekStart: Date, lang: Lang) {
+  // Both languages of every title are generated and stored together (see
+  // LearningPlanOutput) — a weekly plan carries real status/study-session state per
+  // item, so unlike other AI content it must never be silently regenerated (and that
+  // state lost) just because the student toggles the UI language. localizeWeek()
+  // picks the right stored language at read time instead.
+  private async generateWeekRaw(studentId: string, weekStart: Date) {
     const student = await this.studentRepo.findById(studentId);
     if (!student) throw AppError.notFound("Student topilmadi");
 
     const weak = student.subjectLevels
       .filter((s) => s.level === "WEAK")
-      .map((s) => ({ code: s.subject.code, name: pick(s.subject.nameUz, s.subject.nameRu, lang) }));
+      .map((s) => ({ code: s.subject.code, nameUz: s.subject.nameUz, nameRu: s.subject.nameRu }));
     const strong = student.subjectLevels
       .filter((s) => s.level === "STRONG")
-      .map((s) => ({ code: s.subject.code, name: pick(s.subject.nameUz, s.subject.nameRu, lang) }));
+      .map((s) => ({ code: s.subject.code, nameUz: s.subject.nameUz, nameRu: s.subject.nameRu }));
 
     // Subjects with no quiz result yet for this student — otherwise the week is limited
     // to only whichever 1-2 subjects the student happens to have taken a quiz in.
@@ -70,10 +78,9 @@ export class ScheduleService {
     const allSubjects = await this.subjectRepo.findAll();
     const neutral = allSubjects
       .filter((s) => !testedCodes.has(s.code))
-      .map((s) => ({ code: s.code, name: pick(s.nameUz, s.nameRu, lang) }));
+      .map((s) => ({ code: s.code, nameUz: s.nameUz, nameRu: s.nameRu }));
 
     const plan = await this.ai.generateLearningPlan({
-      lang,
       grade: student.grade,
       weakSubjects: weak,
       strongSubjects: strong,
@@ -83,13 +90,19 @@ export class ScheduleService {
 
     const subjectIdByCode = new Map(allSubjects.map((s) => [s.code, s.id]));
 
-    await this.repo.deleteWeek(studentId, weekStart);
+    // Regenerating (whether from "Qayta yaratish" or an empty getCurrentWeek)
+    // must never erase a student's real progress: only never-started (TODO)
+    // items are cleared before writing the fresh plan. An IN_PROGRESS or
+    // COMPLETED item — and the StudySession history attached to it — is left
+    // exactly as it is.
+    await this.repo.deleteTodoItems(studentId, weekStart);
     await this.repo.createMany(
       studentId,
       weekStart,
       plan.days.map((d) => ({
         dayOfWeek: d.dayOfWeek,
         title: d.title,
+        titleRu: d.titleRu,
         subjectCode: d.subjectCode,
         minutes: d.minutes,
       })),
@@ -133,7 +146,18 @@ export class ScheduleService {
     if (!wasCompleted && nowCompleted) {
       await this.gamificationRepo.upsertTodayProgress(studentId, item.minutes, 1, 0);
     } else if (wasCompleted && !nowCompleted) {
-      await this.gamificationRepo.upsertTodayProgress(studentId, -item.minutes, -1, 0);
+      // A completion reached via a quiz (QuizService.submitQuiz -> autoTransitionForSubject)
+      // never comes through this method at all — it credits Progress itself, with its own
+      // model (completedTasks + the quiz score, never studyMinutes), and leaves lastScore
+      // as the only trace of that on the item. Reversing THIS method's own studyMinutes-based
+      // credit here would debit minutes that were never added and leave the quiz's score
+      // credit stuck forever. lastScore is only ever set by that quiz path, so it tells us
+      // which model to undo.
+      if (item.lastScore !== null) {
+        await this.gamificationRepo.upsertTodayProgress(studentId, 0, -1, -item.lastScore);
+      } else {
+        await this.gamificationRepo.upsertTodayProgress(studentId, -item.minutes, -1, 0);
+      }
     }
 
     return { success: true };
@@ -160,7 +184,6 @@ export class ScheduleService {
     subjectId: string,
     targetStatus: "IN_PROGRESS" | "COMPLETED",
     score?: number,
-    lang: Lang = "uz",
     // Real quiz-taking duration (start-to-submit), supplied by the caller when known.
     // Authoritative over inferring elapsed time from StudySession.startedAt — and,
     // unlike that inference, still available even when no StudySession was ever
@@ -204,9 +227,18 @@ export class ScheduleService {
     if (targetStatus === "COMPLETED" && todays.length === 0 && score !== undefined) {
       const subject = await this.subjectRepo.findById(subjectId);
       if (subject) {
-        const name = pick(subject.nameUz, subject.nameRu, lang);
-        const title = pick(`${name} bo'yicha test`, `Тест по предмету «${name}»`, lang);
-        const created = await this.repo.createCompletedNow(studentId, weekStart, isoDay, subjectId, title, 20, score);
+        const title = `${subject.nameUz} bo'yicha test`;
+        const titleRu = `Тест по предмету «${subject.nameRu}»`;
+        const created = await this.repo.createCompletedNow(
+          studentId,
+          weekStart,
+          isoDay,
+          subjectId,
+          title,
+          titleRu,
+          20,
+          score
+        );
         if (elapsedSeconds !== undefined) {
           const completedAt = new Date();
           const startedAt = new Date(completedAt.getTime() - elapsedSeconds * 1000);

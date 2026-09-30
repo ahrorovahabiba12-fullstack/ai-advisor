@@ -2,32 +2,33 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:4000/api";
 
-export const api = axios.create({ baseURL: API_URL });
+// Access/refresh tokens live only in httpOnly cookies set by the server
+// (see server/src/utils/authCookies.ts) — never in localStorage, so
+// client-side JS (including anything an XSS bug might run) can't read them.
+// `withCredentials` is what makes the browser actually send those cookies on
+// every cross-origin (same-site, different-port) request to the API.
+export const api = axios.create({ baseURL: API_URL, withCredentials: true });
 
-// Attach the access token and current UI language on every request. The
-// backend picks nameUz/nameRu (and every AI-generated reply) against this
-// header — kept in sync with i18next via localStorage, since the language
-// can change without a full page reload.
+// Current UI language on every request — the backend picks nameUz/nameRu
+// (and every AI-generated reply) against this header, kept in sync with
+// i18next via localStorage since the language can change without a reload.
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("accessToken");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
   config.headers["X-Lang"] = localStorage.getItem("lang") ?? "uz";
   return config;
 });
 
 // On a 401, try exactly one silent refresh before giving up and logging out.
-let refreshing: Promise<string | null> | null = null;
+// The refresh call carries the refreshToken cookie automatically; a
+// successful response just re-sets fresh cookies server-side — there's
+// nothing for the client to read or store.
+let refreshing: Promise<boolean> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = localStorage.getItem("refreshToken");
-  if (!refreshToken) return null;
+async function refreshAccessToken(): Promise<boolean> {
   try {
-    const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
-    localStorage.setItem("accessToken", data.accessToken);
-    localStorage.setItem("refreshToken", data.refreshToken);
-    return data.accessToken;
+    await axios.post(`${API_URL}/auth/refresh`, undefined, { withCredentials: true });
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -42,15 +43,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;
       refreshing = refreshing ?? refreshAccessToken();
-      const newToken = await refreshing;
+      const refreshed = await refreshing;
       refreshing = null;
-      if (newToken) {
-        original.headers = original.headers ?? {};
-        (original.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
+      if (refreshed) {
         return api.request(original);
       }
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
       window.location.href = "/login";
     }
     return Promise.reject(error);
@@ -60,8 +57,6 @@ api.interceptors.response.use(
 // ---- Response shapes (mirror the backend DTOs exactly — see PROJECT_STATUS.md) ----
 
 export interface AuthSession {
-  accessToken: string;
-  refreshToken: string;
   user: {
     id: string;
     email: string;
@@ -111,7 +106,7 @@ export const authApi = {
   login: (data: { email: string; password: string }) =>
     api.post<AuthSession>("/auth/login", data).then((r) => r.data),
 
-  logout: (refreshToken: string) => api.post("/auth/logout", { refreshToken }),
+  logout: () => api.post("/auth/logout"),
 };
 
 export const studentApi = {

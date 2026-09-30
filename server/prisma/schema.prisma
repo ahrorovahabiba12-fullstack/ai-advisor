@@ -284,6 +284,7 @@ model Schedule {
   weekStart  DateTime
   dayOfWeek  Int
   title      String
+  titleRu    String         @default("")
   subjectId  String?
   minutes    Int
   status     ScheduleStatus @default(TODO)

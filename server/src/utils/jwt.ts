@@ -24,8 +24,14 @@ export const signAccessToken = (payload: AccessTokenPayload): string =>
 export const signRefreshToken = (userId: string): string =>
   jwt.sign({ userId }, env.JWT_REFRESH_SECRET, refreshTokenOptions);
 
+// `algorithms` is pinned explicitly rather than left to jsonwebtoken's
+// default inference — otherwise a token whose header simply claims a
+// different algorithm than the one this app actually signs with would still
+// be handed to the verifier to sort out, which is exactly the shape of past
+// real-world JWT "algorithm confusion" bugs. Pinning it makes any such token
+// fail before the signature is even checked.
 export const verifyAccessToken = (token: string): AccessTokenPayload =>
-  jwt.verify(token, env.JWT_ACCESS_SECRET) as AccessTokenPayload;
+  jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ["HS256"] }) as AccessTokenPayload;
 
 export const verifyRefreshToken = (token: string): { userId: string } =>
-  jwt.verify(token, env.JWT_REFRESH_SECRET) as { userId: string };
+  jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ["HS256"] }) as { userId: string };

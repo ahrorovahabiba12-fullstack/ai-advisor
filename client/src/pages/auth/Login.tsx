@@ -6,7 +6,7 @@ import { authApi } from "../../lib/api";
 import { useAuthStore } from "../../store/authStore";
 import { Input } from "../../components/ui/primitives";
 import { Button } from "../../components/ui/Button";
-import { Sparkles } from "lucide-react";
+import { LogoIcon } from "../../components/icons/LogoIcon";
 
 export default function Login() {
   const { t } = useTranslation();
@@ -41,7 +41,7 @@ export default function Login() {
       <div className="card w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
           <div className="w-12 h-12 rounded-2xl bg-brand-gradient flex items-center justify-center text-white mb-3">
-            <Sparkles size={22} />
+            <LogoIcon size={22} />
           </div>
           <h1 className="text-2xl font-bold">{t("auth.loginTitle")}</h1>
         </div>

@@ -89,6 +89,14 @@ export class CareerService {
         )
       );
     }
+    // Drop any previously-saved recommendation this run didn't reproduce — otherwise a
+    // career the AI no longer matches (or that was only ever saved by an earlier
+    // call/provider/language) would keep showing its stale reasoning forever, mixed in
+    // with this run's fresh, correctly-localized ones.
+    await this.careerRepo.deleteRecommendationsExcept(
+      studentId,
+      saved.map((r) => r.careerId)
+    );
     const recommendations = await this.careerRepo.listRecommendations(studentId);
     return recommendations.map((r) => ({
       ...r,

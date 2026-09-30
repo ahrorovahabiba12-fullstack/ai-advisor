@@ -64,6 +64,25 @@ describe("ScheduleService — markStatus (real DB)", () => {
       expect(progress).toMatchObject({ studyMinutes: -45, completedTasks: -1 });
     });
 
+    it("reverses a quiz-driven completion (lastScore set) by undoing its actual score credit, never the never-credited minutes", async () => {
+      const { student } = await createStudentUser();
+      const subject = await createSubject();
+      // Mirrors what autoTransitionForSubject leaves behind: COMPLETED with a
+      // lastScore, but no minutes were ever credited for it (the quiz's own
+      // transaction credited completedTasks + score directly, not through here).
+      const schedule = await prisma.schedule.create({
+        data: { studentId: student.id, weekStart, dayOfWeek: todayIso, title: "t", subjectId: subject.id, minutes: 45, status: "COMPLETED", lastScore: 80, source: "ai" },
+      });
+
+      await new ScheduleService().markStatus(student.id, schedule.id, "TODO");
+
+      const progress = await prisma.progress.findUnique({ where: { studentId_date: { studentId: student.id, date: startOfDay() } } });
+      // Undoes the score credit (-80) and the task count (-1), but studyMinutes
+      // stays untouched (0) — the 45 planned minutes were never added, so
+      // subtracting them here would have driven studyMinutes negative.
+      expect(progress).toMatchObject({ studyMinutes: 0, completedTasks: -1, scoreDelta: -80 });
+    });
+
     it("is a no-op (no DB write, no crediting) when the status doesn't actually change", async () => {
       const { student } = await createStudentUser();
       const subject = await createSubject();
@@ -311,7 +330,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       data: { studentId: student.id, scheduleId: schedule.id, subjectId: subject.id, startedAt, minutes: 0, status: "IN_PROGRESS" },
     });
 
-    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 80, "uz");
+    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 80);
 
     const updatedSchedule = await prisma.schedule.findUnique({ where: { id: schedule.id } });
     expect(updatedSchedule).toMatchObject({ status: "COMPLETED", lastScore: 80 });
@@ -328,7 +347,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       data: { studentId: student.id, weekStart, dayOfWeek: todayIso, title: "t", subjectId: subject.id, minutes: 30, status: "TODO", source: "ai" },
     });
 
-    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 75, "uz");
+    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 75);
 
     const updated = await prisma.schedule.findUnique({ where: { id: schedule.id } });
     expect(updated).toMatchObject({ status: "COMPLETED", lastScore: 75 });
@@ -343,7 +362,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       data: { studentId: student.id, weekStart, dayOfWeek: todayIso, title: "t", subjectId: subject.id, minutes: 30, status: "TODO", source: "ai" },
     });
 
-    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 75, "uz", 37);
+    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 75, 37);
 
     const sessions = await prisma.studySession.findMany({ where: { scheduleId: schedule.id } });
     expect(sessions).toHaveLength(1);
@@ -363,7 +382,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
 
     // Quiz itself reports only 22 real seconds elapsed (start-to-submit) — this
     // should win over the 10-minute StudySession.startedAt inference.
-    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 80, "uz", 22);
+    await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 80, 22);
 
     const sessions = await prisma.studySession.findMany({ where: { scheduleId: schedule.id } });
     expect(sessions).toHaveLength(1);
@@ -388,7 +407,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       const { student } = await createStudentUser();
       const subject = await createSubject({ code: "SCIENCE", nameUz: "Tabiatshunoslik", nameRu: "Естествознание" });
 
-      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90, "uz");
+      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90);
 
       const created = await prisma.schedule.findMany({ where: { studentId: student.id, subjectId: subject.id } });
       expect(created).toHaveLength(1);
@@ -400,7 +419,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       const { student } = await createStudentUser();
       const subject = await createSubject({ code: "SCIENCE" });
 
-      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90, "uz", 14);
+      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90, 14);
 
       const created = await prisma.schedule.findFirst({ where: { studentId: student.id, subjectId: subject.id } });
       const sessions = await prisma.studySession.findMany({ where: { scheduleId: created!.id } });
@@ -408,14 +427,15 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
       expect(sessions[0]).toMatchObject({ status: "COMPLETED", seconds: 14, minutes: 0 });
     });
 
-    it("localizes the new item's title for Russian", async () => {
+    it("stores both language variants of the new item's title, not just the caller's current UI language", async () => {
       const { student } = await createStudentUser();
       const subject = await createSubject({ code: "SCIENCE", nameUz: "Tabiatshunoslik", nameRu: "Естествознание" });
 
-      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90, "ru");
+      await new ScheduleService().autoTransitionForSubject(student.id, subject.id, "COMPLETED", 90);
 
       const created = await prisma.schedule.findMany({ where: { studentId: student.id, subjectId: subject.id } });
-      expect(created[0].title).toContain("Естествознание");
+      expect(created[0].title).toContain("Tabiatshunoslik");
+      expect(created[0].titleRu).toContain("Естествознание");
     });
 
     it("does NOT insert a new item when targeting IN_PROGRESS (only a real, scored completion adds one)", async () => {
@@ -441,7 +461,7 @@ describe("ScheduleService.autoTransitionForSubject (quiz-driven auto completion,
     it("does nothing if the subject itself can't be found (defensive — never crashes the caller)", async () => {
       const { student } = await createStudentUser();
 
-      await expect(new ScheduleService().autoTransitionForSubject(student.id, "ghost-subject-id", "COMPLETED", 50, "uz")).resolves.toBeUndefined();
+      await expect(new ScheduleService().autoTransitionForSubject(student.id, "ghost-subject-id", "COMPLETED", 50)).resolves.toBeUndefined();
       const created = await prisma.schedule.findMany({ where: { studentId: student.id } });
       expect(created).toHaveLength(0);
     });
@@ -473,10 +493,10 @@ describe("ScheduleService — generateWeek neutral-subject computation (real DB)
 
     expect(ai.generateLearningPlan).toHaveBeenCalledWith(
       expect.objectContaining({
-        weakSubjects: [{ code: "MATH", name: "Matematika" }],
+        weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
         neutralSubjects: expect.arrayContaining([
-          { code: "ENGLISH", name: "Ingliz tili" },
-          { code: "HISTORY", name: "Tarix" },
+          { code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" },
+          { code: "HISTORY", nameUz: "Tarix", nameRu: "История" },
         ]),
       })
     );
@@ -498,6 +518,40 @@ describe("ScheduleService — generateWeek neutral-subject computation (real DB)
     await makeService().generateWeek(student.id, "uz");
 
     const call = ai.generateLearningPlan.mock.calls[0][0];
-    expect(call.neutralSubjects).toEqual([{ code: "HISTORY", name: "Tarix" }]);
+    expect(call.neutralSubjects).toEqual([{ code: "HISTORY", nameUz: "Tarix", nameRu: "История" }]);
+  });
+
+  it("regenerate never deletes a COMPLETED or IN_PROGRESS item (and its StudySession history) — only TODO items are replaced", async () => {
+    const { student } = await createStudentUser({ grade: 8 });
+    const subject = await createSubject({ code: "MATH" });
+
+    const completed = await prisma.schedule.create({
+      data: { studentId: student.id, weekStart, dayOfWeek: 1, title: "old completed", subjectId: subject.id, minutes: 30, status: "COMPLETED", source: "ai" },
+    });
+    const inProgress = await prisma.schedule.create({
+      data: { studentId: student.id, weekStart, dayOfWeek: 2, title: "old in progress", subjectId: subject.id, minutes: 30, status: "IN_PROGRESS", source: "ai" },
+    });
+    const session = await prisma.studySession.create({
+      data: { studentId: student.id, scheduleId: completed.id, subjectId: subject.id, startedAt: new Date(), completedAt: new Date(), minutes: 20, seconds: 1200, status: "COMPLETED" },
+    });
+    const todo = await prisma.schedule.create({
+      data: { studentId: student.id, weekStart, dayOfWeek: 3, title: "old todo", subjectId: subject.id, minutes: 30, status: "TODO", source: "ai" },
+    });
+
+    ai.generateLearningPlan.mockResolvedValue({
+      days: [{ dayOfWeek: 4, subjectCode: "MATH", minutes: 20, title: "fresh plan", titleRu: "новый план" }],
+    });
+
+    await makeService().generateWeek(student.id, "uz");
+
+    // Untouched: real progress and its StudySession history survive regeneration.
+    expect(await prisma.schedule.findUnique({ where: { id: completed.id } })).toMatchObject({ status: "COMPLETED" });
+    expect(await prisma.schedule.findUnique({ where: { id: inProgress.id } })).toMatchObject({ status: "IN_PROGRESS" });
+    expect(await prisma.studySession.findUnique({ where: { id: session.id } })).not.toBeNull();
+
+    // Replaced: the never-started item is gone, and the fresh plan is in.
+    expect(await prisma.schedule.findUnique({ where: { id: todo.id } })).toBeNull();
+    const fresh = await prisma.schedule.findFirst({ where: { studentId: student.id, dayOfWeek: 4 } });
+    expect(fresh).toMatchObject({ title: "fresh plan", status: "TODO" });
   });
 });

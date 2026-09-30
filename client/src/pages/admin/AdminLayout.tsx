@@ -14,13 +14,10 @@ export default function AdminLayout() {
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const handleLogout = async () => {
-    const refreshToken = localStorage.getItem("refreshToken");
-    if (refreshToken) {
-      try {
-        await authApi.logout(refreshToken);
-      } catch {
-        /* local logout still proceeds */
-      }
+    try {
+      await authApi.logout();
+    } catch {
+      /* local logout still proceeds */
     }
     clearSession();
     navigate("/login");

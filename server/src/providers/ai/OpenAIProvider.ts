@@ -132,18 +132,30 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async generateLearningPlan(input: LearningPlanInput): Promise<LearningPlanOutput> {
-    const weakNames = input.weakSubjects.map((s) => s.name).join(",");
-    const strongNames = input.strongSubjects.map((s) => s.name).join(",");
-    const neutralNames = input.neutralSubjects.map((s) => s.name).join(",");
-    const langLine =
-      input.lang === "ru" ? "Barcha matnlarni rus tilida yoz." : "Barcha matnlarni o'zbek tilida yoz.";
-    const prompt = `Grade ${input.grade}. Weak: ${weakNames}. Strong: ${strongNames}. Neutral (untested, everyday-useful): ${neutralNames}. Minutes/day: ${input.availableMinutesPerDay}. Plan a 7-day week. Weak subjects should appear noticeably more often than strong ones. Most days should include a second, shorter block (~20 min) from a neutral or strong subject, so the week covers more than just 1-2 subjects — don't limit the whole week to only the weak/strong subjects. Multiple entries with the same dayOfWeek are allowed and expected. ${langLine} Return JSON: {"days":[{"dayOfWeek":number,"subjectCode":string,"minutes":number,"title":string}]}`;
+    const fmt = (s: { code: string; nameUz: string; nameRu: string }) => `${s.code}(uz:${s.nameUz}/ru:${s.nameRu})`;
+    const weakNames = input.weakSubjects.map(fmt).join(",");
+    const strongNames = input.strongSubjects.map(fmt).join(",");
+    const neutralNames = input.neutralSubjects.map(fmt).join(",");
+    // A weekly plan carries real status/study-session state per item, so — unlike other
+    // AI content — it's never regenerated just because the student toggles the UI
+    // language. Both language variants of each title are generated together, up front,
+    // and stored side by side, so either language can be shown later without a re-call.
+    const prompt = `Grade ${input.grade}. Weak: ${weakNames}. Strong: ${strongNames}. Neutral (untested, everyday-useful): ${neutralNames}. Minutes/day: ${input.availableMinutesPerDay}. Plan a 6-day week, Monday through Saturday only — dayOfWeek must be an integer from 1 (Monday) to 6 (Saturday); never generate anything for Sunday (day 7), which is a rest day with no scheduled study. Weak subjects should appear noticeably more often than strong ones. Most days should include a second, shorter block (~20 min) from a neutral or strong subject, so the week covers more than just 1-2 subjects — don't limit the whole week to only the weak/strong subjects. Multiple entries with the same dayOfWeek are allowed and expected. For each day, write "title" as a short session title in Uzbek and "titleRu" as the SAME session title translated into Russian — both describing the same session, never mixed languages within one field. Return JSON: {"days":[{"dayOfWeek":number,"subjectCode":string,"minutes":number,"title":string,"titleRu":string}]}`;
     const raw = await this.complete("You are a JSON-only API. Respond with valid JSON only.", prompt);
     return this.parseJson(
       raw,
       z.object({
+        // dayOfWeek capped at 6 (Saturday) — a stray Sunday entry from a model that
+        // ignores the prompt must fail validation (falling back to RuleBasedProvider,
+        // which never generates one) rather than silently reintroducing Sunday.
         days: z.array(
-          z.object({ dayOfWeek: z.number(), subjectCode: z.string(), minutes: z.number(), title: z.string() })
+          z.object({
+            dayOfWeek: z.number().int().min(1).max(6),
+            subjectCode: z.string(),
+            minutes: z.number(),
+            title: z.string(),
+            titleRu: z.string(),
+          })
         ),
       })
     );

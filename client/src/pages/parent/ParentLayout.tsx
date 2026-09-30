@@ -1,11 +1,12 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Sparkles, LayoutDashboard, CreditCard, LogOut } from "lucide-react";
+import { LayoutDashboard, CreditCard, LogOut } from "lucide-react";
 import { authApi } from "../../lib/api";
 import { useAuthStore } from "../../store/authStore";
 import { LanguageSwitcher } from "../../components/layout/LanguageSwitcher";
 import { ThemeToggle } from "../../components/layout/ThemeToggle";
 import { NotificationPanel } from "../../components/layout/NotificationPanel";
+import { LogoIcon } from "../../components/icons/LogoIcon";
 
 export default function ParentLayout() {
   const { t } = useTranslation();
@@ -14,13 +15,10 @@ export default function ParentLayout() {
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const handleLogout = async () => {
-    const refreshToken = localStorage.getItem("refreshToken");
-    if (refreshToken) {
-      try {
-        await authApi.logout(refreshToken);
-      } catch {
-        /* local logout still proceeds */
-      }
+    try {
+      await authApi.logout();
+    } catch {
+      /* local logout still proceeds */
     }
     clearSession();
     navigate("/login");
@@ -32,7 +30,7 @@ export default function ParentLayout() {
         <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2 font-bold">
             <div className="w-8 h-8 rounded-lg bg-brand-gradient flex items-center justify-center text-white">
-              <Sparkles size={16} />
+              <LogoIcon size={16} />
             </div>
             {t("parent.headerTitle")}
           </div>

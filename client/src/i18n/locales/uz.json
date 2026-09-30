@@ -120,7 +120,6 @@
   },
   "aiChat": {
     "title": "AI Maslahatchi",
-    "online": "Online",
     "typing": "Yozmoqda...",
     "placeholder": "Savolingizni yozing...",
     "messageLabel": "Xabar yozish",
@@ -152,6 +151,7 @@
   "schedule": {
     "title": "Dars rejasi",
     "regenerate": "Qayta yaratish",
+    "confirmRegenerate": "Haftalik reja qayta yaratilsinmi? Hozircha bajarilmagan (TODO) rejalar yangilanadi — bajarilgan va jarayondagi vazifalar saqlanib qoladi.",
     "days": [
       "Dushanba",
       "Seshanba",
@@ -170,7 +170,8 @@
     "inProgress": "Davom etmoqda",
     "pendingHint": "Shu fandan test topshirilganda avtomatik bajariladi",
     "today": "Bugun",
-    "completedLabel": "Bajarildi"
+    "completedLabel": "Bajarildi",
+    "start": "Boshlash"
   },
   "progress": {
     "title": "Progress",

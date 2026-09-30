@@ -7,7 +7,7 @@ import { useAuthStore } from "../../store/authStore";
 import { Input } from "../../components/ui/primitives";
 import { Button } from "../../components/ui/Button";
 import clsx from "clsx";
-import { Sparkles } from "lucide-react";
+import { LogoIcon } from "../../components/icons/LogoIcon";
 
 export default function Register() {
   const { t } = useTranslation();
@@ -51,7 +51,7 @@ export default function Register() {
       <div className="card w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
           <div className="w-12 h-12 rounded-2xl bg-brand-gradient flex items-center justify-center text-white mb-3">
-            <Sparkles size={22} />
+            <LogoIcon size={22} />
           </div>
           <h1 className="text-2xl font-bold">{t("auth.registerTitle")}</h1>
         </div>

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Check, RefreshCw, Loader2, Circle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Check, RefreshCw, Loader2, Circle, PlayCircle } from "lucide-react";
 import { useState } from "react";
 import { scheduleApi } from "../../lib/api";
 import { Card, EmptyState, ErrorState, Skeleton } from "../../components/ui/primitives";
@@ -15,7 +16,7 @@ type ScheduleItem = {
   actualMinutes: number;
   actualSeconds: number;
   status: "TODO" | "IN_PROGRESS" | "COMPLETED" | "SKIPPED";
-  subject?: { name: string } | null;
+  subject?: { name: string; code?: string } | null;
   lastScore?: number | null;
 };
 
@@ -37,9 +38,9 @@ function formatCompletedDuration(
     : t("schedule.durationSecondsOnly", { seconds });
 }
 
-// Status is now driven entirely by real activity (starting/submitting a quiz for the
-// subject) — see ScheduleService.autoTransitionForSubject on the backend. This card is
-// intentionally read-only: no button here changes status directly anymore.
+// Status is driven entirely by real activity (starting/submitting a quiz for the
+// subject) — see ScheduleService.autoTransitionForSubject on the backend. The play
+// button below only navigates to that quiz; it never sets status itself.
 function ScheduleCard({ item }: { item: ScheduleItem }) {
   const { t } = useTranslation();
 
@@ -100,6 +101,16 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
           )}
         </div>
       </div>
+      {item.status !== "COMPLETED" && (
+        <Link
+          to={item.subject?.code ? `/quiz?subject=${item.subject.code}` : "/schedule"}
+          className="shrink-0 self-center"
+          aria-label={t("schedule.start")}
+          title={t("schedule.start")}
+        >
+          <PlayCircle className="text-brand-500" size={26} />
+        </Link>
+      )}
     </div>
   );
 }
@@ -115,6 +126,7 @@ export default function Schedule() {
   const [regenerating, setRegenerating] = useState(false);
 
   const regenerate = async () => {
+    if (!window.confirm(t("schedule.confirmRegenerate"))) return;
     setRegenerating(true);
     try {
       await scheduleApi.regenerate();
@@ -152,7 +164,8 @@ export default function Schedule() {
         <EmptyState icon="📅" title={t("schedule.emptyTitle")} description={t("schedule.emptyDesc")} />
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+          {/* Monday(1)..Saturday(6) only — the weekly plan excludes Sunday(7). */}
+          {[1, 2, 3, 4, 5, 6].map((day) => {
             const items = byDay[day];
             if (!items?.length) return null;
             const doneCount = items.filter((i) => i.status === "COMPLETED").length;

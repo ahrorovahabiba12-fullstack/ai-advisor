@@ -20,11 +20,5 @@ export const loginSchema = z.object({
   }),
 });
 
-export const refreshSchema = z.object({
-  body: z.object({
-    refreshToken: z.string().min(1),
-  }),
-});
-
 export type RegisterInput = z.infer<typeof registerSchema>["body"];
 export type LoginInput = z.infer<typeof loginSchema>["body"];

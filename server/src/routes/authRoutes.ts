@@ -1,11 +1,13 @@
 import { Router } from "express";
 import * as authController from "../controllers/authController";
 import { validate } from "../middleware/validate";
-import { registerSchema, loginSchema, refreshSchema } from "../validators/authValidators";
+import { registerSchema, loginSchema } from "../validators/authValidators";
 
 export const authRouter = Router();
 
 authRouter.post("/register", validate(registerSchema), authController.register);
 authRouter.post("/login", validate(loginSchema), authController.login);
-authRouter.post("/refresh", validate(refreshSchema), authController.refresh);
-authRouter.post("/logout", validate(refreshSchema), authController.logout);
+// /refresh and /logout take their refresh token from the httpOnly cookie
+// (see authCookies.ts), never from the request body.
+authRouter.post("/refresh", authController.refresh);
+authRouter.post("/logout", authController.logout);

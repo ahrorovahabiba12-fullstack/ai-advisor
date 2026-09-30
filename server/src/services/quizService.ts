@@ -93,6 +93,15 @@ export class QuizService {
     if (questions.length !== answers.length) {
       throw AppError.badRequest("Ba'zi savollar topilmadi");
     }
+    // findQuestionsByIds looks questions up by id alone — without this check a
+    // client could submit real question ids from one subject/grade while
+    // declaring a different subjectId/grade, and that (wrong) subject's
+    // QuizResult/SubjectLevel would silently get scored from someone else's
+    // question pool. Every fetched question must genuinely belong to the
+    // subject/grade the request claims.
+    if (questions.some((q) => q.subjectId !== subjectId || q.grade !== grade)) {
+      throw AppError.badRequest("Savollar tanlangan fan yoki sinfga mos kelmaydi");
+    }
 
     const questionById = new Map(questions.map((q) => [q.id, q]));
     const attemptRecords = answers.map((a) => ({
@@ -135,7 +144,7 @@ export class QuizService {
       const elapsedSeconds = startedAt
         ? Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 1000))
         : undefined;
-      await this.scheduleService.autoTransitionForSubject(studentId, subjectId, "COMPLETED", score, lang, elapsedSeconds);
+      await this.scheduleService.autoTransitionForSubject(studentId, subjectId, "COMPLETED", score, elapsedSeconds);
     } catch {
       /* non-critical side effect — quiz result still stands regardless */
     }

@@ -6,11 +6,10 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
 
   it("schedules the weak subject noticeably more often (as primary) across the week than a single strong subject", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
-      strongSubjects: [{ code: "ENGLISH", name: "Ingliz tili" }],
-      neutralSubjects: [{ code: "SCIENCE", name: "Tabiatshunoslik" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
+      strongSubjects: [{ code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" }],
+      neutralSubjects: [{ code: "SCIENCE", nameUz: "Tabiatshunoslik", nameRu: "Естествознание" }],
       availableMinutesPerDay: 90,
     });
 
@@ -18,16 +17,15 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
     const englishDays = plan.days.filter((d) => d.subjectCode === "ENGLISH").length;
 
     // With weak subjects double-weighted in the rotation pool, MATH should appear
-    // roughly twice as often as ENGLISH across a 7-day week, not equally.
+    // roughly twice as often as ENGLISH across the 6-day week, not equally.
     expect(mathDays).toBeGreaterThan(englishDays);
   });
 
   it("still gives the weak subject the longer (60 min) session whenever it's scheduled as primary", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
-      strongSubjects: [{ code: "ENGLISH", name: "Ingliz tili" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
+      strongSubjects: [{ code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" }],
       neutralSubjects: [],
       availableMinutesPerDay: 90,
     });
@@ -40,24 +38,23 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
     expect(englishDay.minutes).toBe(30);
   });
 
-  it("covers all 7 days even with a single subject and no neutral/strong pool", async () => {
+  it("covers all 6 days (Mon-Sat, no Sunday) even with a single subject and no neutral/strong pool", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
       strongSubjects: [],
       neutralSubjects: [],
       availableMinutesPerDay: 90,
     });
 
     const primaryEntries = plan.days.filter((d) => d.title.includes("mashq") && !d.title.includes("qo'shimcha"));
-    expect(primaryEntries).toHaveLength(7);
+    expect(primaryEntries).toHaveLength(6);
     expect(plan.days.every((d) => d.subjectCode === "MATH")).toBe(true);
+    expect(plan.days.every((d) => d.dayOfWeek >= 1 && d.dayOfWeek <= 6)).toBe(true);
   });
 
   it("falls back to a generic review day only when there are truly no subjects anywhere, not even neutral ones", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
       weakSubjects: [],
       strongSubjects: [],
@@ -65,20 +62,19 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
       availableMinutesPerDay: 90,
     });
 
-    expect(plan.days).toHaveLength(7);
+    expect(plan.days).toHaveLength(6);
     expect(plan.days.every((d) => d.subjectCode === "general")).toBe(true);
   });
 
   it("rotates through real (neutral/untested) subjects for a brand-new student, instead of a misleading 'general review' — nothing to review yet", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
       weakSubjects: [],
       strongSubjects: [],
       neutralSubjects: [
-        { code: "MATH", name: "Matematika" },
-        { code: "CHEMISTRY", name: "Kimyo" },
-        { code: "ENGLISH", name: "Ingliz tili" },
+        { code: "MATH", nameUz: "Matematika", nameRu: "Математика" },
+        { code: "CHEMISTRY", nameUz: "Kimyo", nameRu: "Химия" },
+        { code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" },
       ],
       availableMinutesPerDay: 90,
     });
@@ -94,19 +90,18 @@ describe("RuleBasedProvider.generateLearningPlan — multi-subject variety (neut
 
   it("adds a second, shorter block from neutral subjects on top of the primary subject each day", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
-      strongSubjects: [{ code: "ENGLISH", name: "Ingliz tili" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
+      strongSubjects: [{ code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" }],
       neutralSubjects: [
-        { code: "HISTORY", name: "Tarix" },
-        { code: "SCIENCE", name: "Tabiatshunoslik" },
+        { code: "HISTORY", nameUz: "Tarix", nameRu: "История" },
+        { code: "SCIENCE", nameUz: "Tabiatshunoslik", nameRu: "Естествознание" },
       ],
       availableMinutesPerDay: 90,
     });
 
-    // More than 7 entries proves a second block is being added on at least some days.
-    expect(plan.days.length).toBeGreaterThan(7);
+    // More than 6 entries proves a second block is being added on at least some days.
+    expect(plan.days.length).toBeGreaterThan(6);
     const neutralEntries = plan.days.filter((d) => d.subjectCode === "HISTORY" || d.subjectCode === "SCIENCE");
     expect(neutralEntries.length).toBeGreaterThan(0);
     expect(neutralEntries.every((d) => d.minutes <= 20)).toBe(true);
@@ -114,15 +109,14 @@ describe("RuleBasedProvider.generateLearningPlan — multi-subject variety (neut
 
   it("never schedules the same subject twice on the same day", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
-      strongSubjects: [{ code: "MATH2", name: "Algebra" }],
-      neutralSubjects: [{ code: "HISTORY", name: "Tarix" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
+      strongSubjects: [{ code: "MATH2", nameUz: "Algebra", nameRu: "Алгебра" }],
+      neutralSubjects: [{ code: "HISTORY", nameUz: "Tarix", nameRu: "История" }],
       availableMinutesPerDay: 90,
     });
 
-    for (let d = 1; d <= 7; d++) {
+    for (let d = 1; d <= 6; d++) {
       const codesForDay = plan.days.filter((x) => x.dayOfWeek === d).map((x) => x.subjectCode);
       expect(new Set(codesForDay).size).toBe(codesForDay.length);
     }
@@ -130,23 +124,21 @@ describe("RuleBasedProvider.generateLearningPlan — multi-subject variety (neut
 
   it("does not add a second block when there isn't enough time in the day for it", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
       strongSubjects: [],
-      neutralSubjects: [{ code: "HISTORY", name: "Tarix" }],
+      neutralSubjects: [{ code: "HISTORY", nameUz: "Tarix", nameRu: "История" }],
       availableMinutesPerDay: 30, // only enough for the primary block
     });
 
-    expect(plan.days).toHaveLength(7);
+    expect(plan.days).toHaveLength(6);
   });
 
   it("falls back to the strong-subjects pool for the second block when there are no neutral subjects at all", async () => {
     const plan = await provider.generateLearningPlan({
-      lang: "uz",
       grade: 8,
-      weakSubjects: [{ code: "MATH", name: "Matematika" }],
-      strongSubjects: [{ code: "ENGLISH", name: "Ingliz tili" }],
+      weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
+      strongSubjects: [{ code: "ENGLISH", nameUz: "Ingliz tili", nameRu: "Английский" }],
       neutralSubjects: [],
       availableMinutesPerDay: 90,
     });
