@@ -29,6 +29,10 @@ export class StudentRepository {
     return this.db.student.findFirst({ where: { id: studentId, parentId } });
   }
 
+  findGrade(id: string) {
+    return this.db.student.findUnique({ where: { id }, select: { grade: true } });
+  }
+
   updateProfile(
     id: string,
     data: Partial<{ interests: string[]; favoriteSubjects: string[]; goals: string[]; careerInterests: string[]; region: string | null }>

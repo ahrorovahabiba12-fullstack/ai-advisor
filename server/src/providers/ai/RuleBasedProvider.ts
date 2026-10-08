@@ -254,23 +254,30 @@ export class RuleBasedProvider implements AIProvider {
     // a rest day with no scheduled study.
     for (let d = 1; d <= 6; d++) {
       const primary = pool[(d - 1) % Math.max(pool.length, 1)] ?? fallback;
+      // Completing a block means taking a short, fixed-length quiz (QUIZ_LENGTH
+      // questions in QuizService) — never literally an hour of study — so these
+      // stay close to how long that quiz actually takes. Keeping them small also
+      // keeps StudyAnalyticsService.actualVsPlannedRate meaningful: that rate
+      // divides the quiz's real elapsed time by this planned figure, so an
+      // inflated estimate here made genuinely-completed-every-day students look
+      // like they were falling far short of their plan.
       days.push({
         dayOfWeek: d,
         subjectCode: primary.code,
         minutes: weakCodes.has(primary.code)
-          ? Math.min(60, input.availableMinutesPerDay)
-          : Math.min(30, input.availableMinutesPerDay),
+          ? Math.min(15, input.availableMinutesPerDay)
+          : Math.min(10, input.availableMinutesPerDay),
         title: `${primary.nameUz} bo'yicha mashq`,
         titleRu: `Практика по предмету «${primary.nameRu}»`,
       });
 
       const secondaryCandidates = secondaryPool.filter((s) => s.code !== primary.code);
-      if (secondaryCandidates.length > 0 && input.availableMinutesPerDay > 30) {
+      if (secondaryCandidates.length > 0 && input.availableMinutesPerDay > 15) {
         const secondary = secondaryCandidates[(d - 1) % secondaryCandidates.length];
         days.push({
           dayOfWeek: d,
           subjectCode: secondary.code,
-          minutes: Math.min(20, input.availableMinutesPerDay - 30),
+          minutes: Math.min(5, input.availableMinutesPerDay - 15),
           title: `${secondary.nameUz} bo'yicha qo'shimcha mashq`,
           titleRu: `Дополнительная практика по предмету «${secondary.nameRu}»`,
         });

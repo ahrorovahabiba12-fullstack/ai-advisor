@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { Check, RefreshCw, Loader2, Circle, PlayCircle } from "lucide-react";
+import { Check, RefreshCw, Loader2, Circle, PlayCircle, X } from "lucide-react";
 import { useState } from "react";
 import { scheduleApi } from "../../lib/api";
 import { Card, EmptyState, ErrorState, Skeleton } from "../../components/ui/primitives";
@@ -40,8 +40,11 @@ function formatCompletedDuration(
 
 // Status is driven entirely by real activity (starting/submitting a quiz for the
 // subject) — see ScheduleService.autoTransitionForSubject on the backend. The play
-// button below only navigates to that quiz; it never sets status itself.
-function ScheduleCard({ item }: { item: ScheduleItem }) {
+// button below only navigates to that quiz; it never sets status itself. It only
+// appears on today's card — a schedule card is this week's plan, not a shortcut to
+// jump ahead into a future day's task or redo a past day's from here (the dedicated
+// "Testlar" page is still open for practicing any subject at any time).
+function ScheduleCard({ item, isToday }: { item: ScheduleItem; isToday: boolean }) {
   const { t } = useTranslation();
 
   return (
@@ -52,7 +55,9 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
           ? "border-emerald-300 bg-emerald-50"
           : item.status === "IN_PROGRESS"
             ? "border-brand-300 bg-brand-50"
-            : "border-[var(--border-subtle)]"
+            : item.status === "SKIPPED"
+              ? "border-[var(--border-subtle)] opacity-60"
+              : "border-[var(--border-subtle)]"
       )}
     >
       <span
@@ -60,18 +65,19 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
           "w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5",
           item.status === "COMPLETED" && "bg-emerald-500 text-white",
           item.status === "IN_PROGRESS" && "text-brand-600",
-          item.status === "TODO" && "text-[var(--border-subtle)]"
+          (item.status === "TODO" || item.status === "SKIPPED") && "text-[var(--border-subtle)]"
         )}
       >
         {item.status === "COMPLETED" && <Check size={12} className="animate-scale-in" />}
         {item.status === "IN_PROGRESS" && <Loader2 size={14} className="animate-spin" />}
         {item.status === "TODO" && <Circle size={14} />}
+        {item.status === "SKIPPED" && <X size={14} />}
       </span>
       <div className="flex-1">
         <span
           className={clsx(
             "block text-sm font-medium",
-            item.status === "COMPLETED" && "line-through text-[var(--text-secondary)]",
+            (item.status === "COMPLETED" || item.status === "SKIPPED") && "line-through text-[var(--text-secondary)]",
             // IN_PROGRESS keeps its card on a fixed light bg-brand-50 in both
             // themes — the default (theme-flipping) text color would go
             // near-white-on-light in dark mode, same bug as the quiz options.
@@ -99,9 +105,12 @@ function ScheduleCard({ item }: { item: ScheduleItem }) {
               {item.lastScore != null && <> — {item.lastScore}%</>}
             </span>
           )}
+          {item.status === "SKIPPED" && (
+            <span className="text-xs text-[var(--text-secondary)]">{t("schedule.skippedLabel")}</span>
+          )}
         </div>
       </div>
-      {item.status !== "COMPLETED" && (
+      {isToday && item.status !== "COMPLETED" && (
         <Link
           to={item.subject?.code ? `/quiz?subject=${item.subject.code}` : "/schedule"}
           className="shrink-0 self-center"
@@ -187,7 +196,7 @@ export default function Schedule() {
                 </div>
                 <div className="flex flex-col gap-2">
                   {items.map((item) => (
-                    <ScheduleCard key={item.id} item={item} />
+                    <ScheduleCard key={item.id} item={item} isToday={isToday} />
                   ))}
                 </div>
               </Card>

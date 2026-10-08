@@ -15,6 +15,7 @@ export default function ParentLayout() {
   const clearSession = useAuthStore((s) => s.clearSession);
 
   const handleLogout = async () => {
+    if (!window.confirm(t("settings.confirmLogout"))) return;
     try {
       await authApi.logout();
     } catch {

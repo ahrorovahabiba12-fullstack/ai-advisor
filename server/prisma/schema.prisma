@@ -522,6 +522,7 @@ model ConsistencyScore {
 
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
+  @@unique([studentId, periodEnd])
   @@index([studentId, periodStart])
 }
 

@@ -47,9 +47,29 @@ export class ScheduleService {
 
   async getCurrentWeek(studentId: string, lang: Lang) {
     const weekStart = mondayOf(new Date());
+    await this.skipPastDueItems(studentId, weekStart);
     const existing = await this.repo.findByWeek(studentId, weekStart);
     if (existing.length > 0) return this.localizeWeek(existing, lang);
     return this.localizeWeek(await this.generateWeekRaw(studentId, weekStart), lang);
+  }
+
+  // A TODO/IN_PROGRESS item whose day has already passed (earlier this same
+  // week) is never coming back — nothing in the app can ever move it forward
+  // again (the Play button only appears on today's card). Left alone it
+  // would show "Davom etmoqda" forever for a quiz the student started but
+  // never finished that day. Runs on every getCurrentWeek read so this
+  // resolves itself the next time the student opens the page, no cron needed.
+  private async skipPastDueItems(studentId: string, weekStart: Date) {
+    const jsDay = new Date().getDay();
+    const todayIsoDay = jsDay === 0 ? 7 : jsDay;
+    const pastDue = await this.repo.findPastDueOpenItems(studentId, weekStart, todayIsoDay);
+    if (pastDue.length === 0) return;
+
+    const inProgressIds = pastDue.filter((i) => i.status === "IN_PROGRESS").map((i) => i.id);
+    if (inProgressIds.length > 0) {
+      await this.studySessionRepo.abandonActiveForSchedules(inProgressIds);
+    }
+    await this.repo.skipItems(pastDue.map((i) => i.id));
   }
 
   async generateWeek(studentId: string, lang: Lang, weekStart = mondayOf(new Date())) {

@@ -8,16 +8,22 @@ describe("ConsistencyService (real DB)", () => {
   beforeEach(() => resetDb());
   afterAll(() => prisma.$disconnect());
 
-  it("returns the cached snapshot when one was already computed today, without recomputing", async () => {
+  it("recomputes fresh every call instead of trusting a stale same-day snapshot, but upserts (never duplicates) that day's row", async () => {
     const { student } = await createStudentUser();
     const today = startOfDay();
+    // A snapshot already exists for today, written before any real activity happened.
     await prisma.consistencyScore.create({
-      data: { studentId: student.id, periodStart: today, periodEnd: today, score: 42, activeDays: 5, plannedDays: 30, completedDays: 3 },
+      data: { studentId: student.id, periodStart: today, periodEnd: today, score: 0, activeDays: 0, plannedDays: 30, completedDays: 0 },
+    });
+    // Real activity happens after that stale snapshot was written.
+    await prisma.progress.create({
+      data: { studentId: student.id, date: today, studyMinutes: 30, completedTasks: 1 },
     });
 
     const result = await new ConsistencyService().getScore(student.id);
 
-    expect(result).toMatchObject({ score: 42 });
+    expect(result).toMatchObject({ activeDays: 1 });
+    expect(result.score).toBeGreaterThan(0);
     const all = await prisma.consistencyScore.findMany({ where: { studentId: student.id } });
     expect(all).toHaveLength(1);
   });

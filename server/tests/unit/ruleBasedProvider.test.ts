@@ -21,7 +21,7 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
     expect(mathDays).toBeGreaterThan(englishDays);
   });
 
-  it("still gives the weak subject the longer (60 min) session whenever it's scheduled as primary", async () => {
+  it("still gives the weak subject the longer (15 min) session whenever it's scheduled as primary", async () => {
     const plan = await provider.generateLearningPlan({
       grade: 8,
       weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
@@ -34,8 +34,8 @@ describe("RuleBasedProvider.generateLearningPlan — weak-subject weighting", ()
     const mathDay = plan.days.find((d) => d.subjectCode === "MATH" && isPrimary(d))!;
     const englishDay = plan.days.find((d) => d.subjectCode === "ENGLISH" && isPrimary(d))!;
 
-    expect(mathDay.minutes).toBe(60);
-    expect(englishDay.minutes).toBe(30);
+    expect(mathDay.minutes).toBe(15);
+    expect(englishDay.minutes).toBe(10);
   });
 
   it("covers all 6 days (Mon-Sat, no Sunday) even with a single subject and no neutral/strong pool", async () => {
@@ -104,7 +104,7 @@ describe("RuleBasedProvider.generateLearningPlan — multi-subject variety (neut
     expect(plan.days.length).toBeGreaterThan(6);
     const neutralEntries = plan.days.filter((d) => d.subjectCode === "HISTORY" || d.subjectCode === "SCIENCE");
     expect(neutralEntries.length).toBeGreaterThan(0);
-    expect(neutralEntries.every((d) => d.minutes <= 20)).toBe(true);
+    expect(neutralEntries.every((d) => d.minutes <= 5)).toBe(true);
   });
 
   it("never schedules the same subject twice on the same day", async () => {
@@ -128,7 +128,7 @@ describe("RuleBasedProvider.generateLearningPlan — multi-subject variety (neut
       weakSubjects: [{ code: "MATH", nameUz: "Matematika", nameRu: "Математика" }],
       strongSubjects: [],
       neutralSubjects: [{ code: "HISTORY", nameUz: "Tarix", nameRu: "История" }],
-      availableMinutesPerDay: 30, // only enough for the primary block
+      availableMinutesPerDay: 15, // only enough for the primary block
     });
 
     expect(plan.days).toHaveLength(6);

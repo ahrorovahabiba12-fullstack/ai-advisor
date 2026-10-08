@@ -1,5 +1,6 @@
 import { SubjectLevelEnum } from "@prisma/client";
 import { QuizRepository } from "../repositories/quizRepository";
+import { StudentRepository } from "../repositories/studentRepository";
 import { GamificationService } from "./gamificationService";
 import { ScheduleService } from "./scheduleService";
 import { AppError } from "../utils/AppError";
@@ -29,12 +30,28 @@ const WEIGHT_CORRECT_LAST_TIME = 1;
 export class QuizService {
   constructor(
     private repo = new QuizRepository(prisma),
+    private studentRepo = new StudentRepository(prisma),
     private gamification = new GamificationService(),
     private scheduleService = new ScheduleService()
   ) {}
 
+  // grade is client-supplied on both endpoints below, purely to pick which
+  // question pool to serve/validate against — the frontend only ever sends
+  // the student's own profile grade (never lets them pick another), so
+  // nothing legitimate breaks by enforcing that server-side too. Without
+  // this, a tampered request could fetch/score a different grade's content
+  // and have it land in that student's real QuizResult history.
+  private async assertOwnGrade(studentId: string, grade: number) {
+    const student = await this.studentRepo.findGrade(studentId);
+    if (!student) throw AppError.notFound("Student topilmadi");
+    if (student.grade !== grade) {
+      throw AppError.badRequest("So'ralgan sinf sizning profilingizdagi sinfga mos kelmaydi");
+    }
+  }
+
   /** Returns questions WITHOUT correctIndex — the client never sees answers. */
   async startQuiz(studentId: string, subjectId: string, grade: number, lang: Lang) {
+    await this.assertOwnGrade(studentId, grade);
     const pool = await this.repo.findQuestionPool(subjectId, grade);
     if (pool.length === 0) {
       throw AppError.notFound("Bu fan va sinf uchun testlar hali qo'shilmagan");
@@ -89,6 +106,7 @@ export class QuizService {
     lang: Lang,
     startedAt?: string
   ) {
+    await this.assertOwnGrade(studentId, grade);
     const questions = await this.repo.findQuestionsByIds(answers.map((a) => a.questionId));
     if (questions.length !== answers.length) {
       throw AppError.badRequest("Ba'zi savollar topilmadi");

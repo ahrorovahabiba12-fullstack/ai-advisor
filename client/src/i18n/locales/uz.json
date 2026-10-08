@@ -11,7 +11,7 @@
   "landing": {
     "badge": "Sizning AI maslahatchingiz",
     "title1": "O'qish. Rivojlanish.",
-    "title2": "Karera. Kelajak.",
+    "title2": "Karyera. Kelajak.",
     "titleHighlight": "Siz bilan!",
     "subtitle": "Sun'iy intellekt yordamida o'zingizga mos o'quv reja tuzing, bilimingizni rivojlantiring va orzudagi kasbga qadam qo'ying.",
     "ctaRegister": "Ro'yxatdan o'tish",
@@ -103,7 +103,8 @@
     "title": "Sozlamalar",
     "language": "Til",
     "appearance": "Ko'rinish",
-    "logout": "Chiqish"
+    "logout": "Chiqish",
+    "confirmLogout": "Rostdan ham tizimdan chiqmoqchimisiz?"
   },
   "topbar": {
     "streak": "kunlik seriya",
@@ -171,6 +172,7 @@
     "pendingHint": "Shu fandan test topshirilganda avtomatik bajariladi",
     "today": "Bugun",
     "completedLabel": "Bajarildi",
+    "skippedLabel": "O'tkazib yuborildi",
     "start": "Boshlash"
   },
   "progress": {

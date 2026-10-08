@@ -9,13 +9,6 @@ function startOfDay(date: Date): Date {
 export class ConsistencyRepository {
   constructor(private db: PrismaClient) {}
 
-  findLatest(studentId: string) {
-    return this.db.consistencyScore.findFirst({
-      where: { studentId },
-      orderBy: { periodEnd: "desc" },
-    });
-  }
-
   progressInRange(studentId: string, periodStart: Date, periodEnd: Date) {
     return this.db.progress.findMany({
       where: { studentId, date: { gte: periodStart, lte: periodEnd } },
@@ -23,7 +16,13 @@ export class ConsistencyRepository {
     });
   }
 
-  create(
+  // Upsert, not create — getScore() recomputes on every call now (no more
+  // same-day cache staleness), and without a day-keyed upsert that would
+  // insert a fresh row on every single page load. It also closes a real race:
+  // Progress.tsx fires /consistency and /study-analytics/stats in parallel,
+  // and the latter calls this same path internally — two concurrent plain
+  // inserts for "today" raced each other and left duplicate rows in prod.
+  upsertForDay(
     studentId: string,
     periodStart: Date,
     periodEnd: Date,
@@ -32,8 +31,11 @@ export class ConsistencyRepository {
     plannedDays: number,
     completedDays: number
   ) {
-    return this.db.consistencyScore.create({
-      data: { studentId, periodStart: startOfDay(periodStart), periodEnd: startOfDay(periodEnd), score, activeDays, plannedDays, completedDays },
+    const data = { score, activeDays, plannedDays, completedDays };
+    return this.db.consistencyScore.upsert({
+      where: { studentId_periodEnd: { studentId, periodEnd: startOfDay(periodEnd) } },
+      create: { studentId, periodStart: startOfDay(periodStart), periodEnd: startOfDay(periodEnd), ...data },
+      update: data,
     });
   }
 }

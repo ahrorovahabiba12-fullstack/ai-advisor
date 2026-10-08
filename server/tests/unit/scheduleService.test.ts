@@ -555,3 +555,66 @@ describe("ScheduleService — generateWeek neutral-subject computation (real DB)
     expect(fresh).toMatchObject({ title: "fresh plan", status: "TODO" });
   });
 });
+
+describe("ScheduleService.getCurrentWeek — auto-skipping past-due items (real DB)", () => {
+  beforeEach(() => resetDb());
+  afterAll(() => prisma.$disconnect());
+
+  it("skips a TODO/IN_PROGRESS item left over from an earlier day this week, closes its dangling StudySession, and leaves today's own items untouched", async () => {
+    // A fixed, known Thursday — fake timers make this deterministic regardless
+    // of which real day the suite happens to run on (Monday/Tuesday only
+    // count as "past" relative to a specific "today").
+    const thursday = new Date("2026-10-01T10:00:00");
+    vi.useFakeTimers();
+    vi.setSystemTime(thursday);
+    try {
+      const { student } = await createStudentUser({ grade: 8 });
+      const subject = await createSubject();
+      const thisWeekStart = mondayOf(thursday);
+
+      const stuckTodo = await prisma.schedule.create({
+        data: { studentId: student.id, weekStart: thisWeekStart, dayOfWeek: 1, title: "t", subjectId: subject.id, minutes: 30, status: "TODO", source: "ai" },
+      });
+      const stuckInProgress = await prisma.schedule.create({
+        data: { studentId: student.id, weekStart: thisWeekStart, dayOfWeek: 2, title: "t", subjectId: subject.id, minutes: 30, status: "IN_PROGRESS", source: "ai" },
+      });
+      const danglingSession = await prisma.studySession.create({
+        data: { studentId: student.id, scheduleId: stuckInProgress.id, subjectId: subject.id, startedAt: thursday, minutes: 0, status: "IN_PROGRESS" },
+      });
+      const todayItem = await prisma.schedule.create({
+        data: { studentId: student.id, weekStart: thisWeekStart, dayOfWeek: 4, title: "t", subjectId: subject.id, minutes: 30, status: "TODO", source: "ai" },
+      });
+
+      await new ScheduleService().getCurrentWeek(student.id, "uz");
+
+      expect((await prisma.schedule.findUnique({ where: { id: stuckTodo.id } }))?.status).toBe("SKIPPED");
+      expect((await prisma.schedule.findUnique({ where: { id: stuckInProgress.id } }))?.status).toBe("SKIPPED");
+      expect((await prisma.studySession.findUnique({ where: { id: danglingSession.id } }))?.status).toBe("SKIPPED");
+      // Today's own TODO item is a day-of-week match for "today", not "past due" — untouched.
+      expect((await prisma.schedule.findUnique({ where: { id: todayItem.id } }))?.status).toBe("TODO");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never skips a COMPLETED past item — only TODO/IN_PROGRESS are stale-by-day", async () => {
+    const thursday = new Date("2026-10-01T10:00:00");
+    vi.useFakeTimers();
+    vi.setSystemTime(thursday);
+    try {
+      const { student } = await createStudentUser({ grade: 8 });
+      const subject = await createSubject();
+      const thisWeekStart = mondayOf(thursday);
+
+      const completedMonday = await prisma.schedule.create({
+        data: { studentId: student.id, weekStart: thisWeekStart, dayOfWeek: 1, title: "t", subjectId: subject.id, minutes: 30, status: "COMPLETED", source: "ai" },
+      });
+
+      await new ScheduleService().getCurrentWeek(student.id, "uz");
+
+      expect((await prisma.schedule.findUnique({ where: { id: completedMonday.id } }))?.status).toBe("COMPLETED");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

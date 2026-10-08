@@ -106,7 +106,11 @@ export class StudyAnalyticsService {
       plannedMinutes,
       actualMinutes,
       actualVsPlannedRate,
-      sessionCount: sessions.length,
+      // completedSessions, not sessions — avgSessionMinutes and
+      // subjectBreakdown below are already completed-only, so counting every
+      // session here (including abandoned/still-open/auto-skipped ones) made
+      // this number not reconcile with either of those on the same card.
+      sessionCount: completedSessions.length,
       avgSessionMinutes,
       consistencyScore: consistency.score,
       currentStreak: streak,

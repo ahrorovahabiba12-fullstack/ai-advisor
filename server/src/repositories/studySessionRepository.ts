@@ -50,6 +50,17 @@ export class StudySessionRepository {
     });
   }
 
+  // Companion to ScheduleRepository.skipItems — a dangling active session for
+  // a Schedule item that just got auto-skipped (its day has passed, it was
+  // never completed) should stop looking "in progress" too, not keep sitting
+  // open forever with no completedAt.
+  abandonActiveForSchedules(scheduleIds: string[]) {
+    return this.db.studySession.updateMany({
+      where: { scheduleId: { in: scheduleIds }, status: "IN_PROGRESS" },
+      data: { status: "SKIPPED" },
+    });
+  }
+
   findRecent(studentId: string, since: Date) {
     return this.db.studySession.findMany({
       where: { studentId, startedAt: { gte: since } },

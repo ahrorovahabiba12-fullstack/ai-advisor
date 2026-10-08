@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { QuizService } from "../../src/services/quizService";
 import { QuizRepository } from "../../src/repositories/quizRepository";
+import { StudentRepository } from "../../src/repositories/studentRepository";
 import { prisma } from "../../src/config/prisma";
 import { resetDb } from "../helpers/db";
 import { createStudentUser, createSubject } from "../helpers/fixtures";
@@ -15,7 +16,7 @@ describe("QuizService — server-side scoring (real DB)", () => {
   const scheduleService = { autoTransitionForSubject: vi.fn().mockResolvedValue(undefined) };
 
   function makeService() {
-    return new QuizService(new QuizRepository(prisma), gamification as any, scheduleService as any);
+    return new QuizService(new QuizRepository(prisma), new StudentRepository(prisma), gamification as any, scheduleService as any);
   }
 
   beforeEach(async () => {
@@ -90,6 +91,26 @@ describe("QuizService — server-side scoring (real DB)", () => {
     expect(result.score).toBe(50);
     const saved = await prisma.quizResult.findUnique({ where: { id: result.resultId } });
     expect(saved).toMatchObject({ studentId: student.id, subjectId: subject.id, score: 50 });
+  });
+
+  it("rejects start/submit when the requested grade doesn't match the student's own profile grade, even if that grade's content genuinely exists", async () => {
+    const { student } = await createStudentUser({ grade: 7 });
+    const subject = await createSubject();
+    const q1 = await prisma.question.create({
+      data: { subjectId: subject.id, grade: 11, text: "a", textRu: "a", options: [], optionsRu: [], correctIndex: 1 },
+    });
+
+    // The frontend always sends the student's own profile grade — a request
+    // claiming a different one (here grade 11 for a grade-7 student) can only
+    // be a tampered client, not a real UI flow, so it must be rejected before
+    // ever touching that grade's question pool.
+    await expect(makeService().startQuiz(student.id, subject.id, 11, "uz")).rejects.toMatchObject({ statusCode: 400 });
+    await expect(
+      makeService().submitQuiz(student.id, subject.id, 11, [{ questionId: q1.id, selectedIndex: 1 }], "uz")
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    const saved = await prisma.quizResult.findFirst({ where: { studentId: student.id } });
+    expect(saved).toBeNull();
   });
 
   it("rejects a submission whose declared subjectId doesn't match the actual questions' subject", async () => {

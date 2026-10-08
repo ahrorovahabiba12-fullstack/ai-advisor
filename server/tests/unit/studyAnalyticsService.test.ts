@@ -74,7 +74,7 @@ describe("StudyAnalyticsService.getStats (real DB)", () => {
     expect(stats.actualVsPlannedRate).toBeCloseTo(58.3, 1);
   });
 
-  it("only counts COMPLETED sessions toward actualMinutes/subjectBreakdown, not in-progress ones", async () => {
+  it("only counts COMPLETED sessions toward actualMinutes/sessionCount/subjectBreakdown, not in-progress ones", async () => {
     const { student } = await createStudentUser();
     const math = await createSubject({ code: "MATH" });
     await prisma.studySession.createMany({
@@ -87,8 +87,11 @@ describe("StudyAnalyticsService.getStats (real DB)", () => {
     const stats = await makeService().getStats(student.id, "uz");
 
     expect(stats.actualMinutes).toBe(20);
-    expect(stats.sessionCount).toBe(2); // sessionCount counts all started sessions...
-    expect(stats.subjectBreakdown[0].sessionCount).toBe(1); // ...but breakdown only counts completed ones
+    // sessionCount must agree with subjectBreakdown and avgSessionMinutes,
+    // which are both completed-only — counting the still-open session here
+    // too would make this number not reconcile with either sibling stat.
+    expect(stats.sessionCount).toBe(1);
+    expect(stats.subjectBreakdown[0].sessionCount).toBe(1);
   });
 
   it("builds a subject breakdown with localized names, sorted by minutes descending", async () => {

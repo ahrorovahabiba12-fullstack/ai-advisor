@@ -87,4 +87,20 @@ export class ScheduleRepository {
   findRecent(studentId: string, since: Date) {
     return this.db.schedule.findMany({ where: { studentId, weekStart: { gte: since } } });
   }
+
+  // Items from an earlier day this week that never got finished — the day
+  // they were scheduled for is already gone, so leaving them TODO/IN_PROGRESS
+  // would be misleading forever (the Play button only ever appears on
+  // today's card, so an IN_PROGRESS one from a past day could otherwise
+  // never be reached again).
+  findPastDueOpenItems(studentId: string, weekStart: Date, beforeIsoDay: number) {
+    return this.db.schedule.findMany({
+      where: { studentId, weekStart, dayOfWeek: { lt: beforeIsoDay }, status: { in: [ScheduleStatus.TODO, ScheduleStatus.IN_PROGRESS] } },
+      select: { id: true, status: true },
+    });
+  }
+
+  skipItems(ids: string[]) {
+    return this.db.schedule.updateMany({ where: { id: { in: ids } }, data: { status: ScheduleStatus.SKIPPED } });
+  }
 }
