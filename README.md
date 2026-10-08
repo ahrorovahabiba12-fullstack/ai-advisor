@@ -4,22 +4,33 @@ Shaxsiy AI o'quv va kasb maslahatchisi — o'quvchilar uchun individual o'quv re
 progress tahlili, AI chat, va (9-11 sinf uchun) kasb/universitet tavsiyalari.
 Ota-onalar uchun alohida analitika paneli.
 
-> **Loyiha holati**: to'liq kod bazasi yozilgan (backend + frontend), lekin bu
-> repo tarmoqqa chiqish imkoni bo'lmagan muhitda tayyorlangani sababli **hali
-> ishga tushirilmagan va sinovdan o'tkazilmagan**. Batafsil: `PROJECT_STATUS.md`.
-> Birinchi bo'lib qiling: `npm install && npm run prisma:migrate && npm run prisma:seed && npm test`,
-> so'ng chiqqan xatolarni tuzating.
+> **Loyiha holati**: to'liq kod bazasi ishga tushirilgan, haqiqiy PostgreSQL
+> bazasi ustida sinovdan o'tkazilgan va real brauzerda tekshirilgan — **172
+> test o'tadi** (`npm test`). Batafsil holat, bilingan kamchiliklar va demo
+> akkountlar: `PROJECT_STATUS.md`.
 
 ## Xususiyatlar
 
-- **Auth** — JWT (access+refresh), Student/Parent rollari, parol hash (bcrypt)
+- **Auth** — JWT (access+refresh), httpOnly cookie'larda saqlanadi (localStorage
+  emas — XSS orqali token o'g'irlashning oldini oladi), refresh token har safar
+  rotatsiya qilinadi va hash holida saqlanadi, login/register'ga alohida
+  rate-limit, Student/Parent rollari, parol hash (bcrypt), ro'yxatdan o'tish
+  4-11 sinf uchun ochiq
 - **AI Recommendation** — shaxsiy o'quv tavsiyasi, haftalik reja, progress tahlili
 - **AI Chat** — to'liq context bilan (grade, qiziqish, fan darajalari, maqsad, progress)
-- **Quiz** — server-side baholash, 8 fan, avtomatik SubjectLevel yangilanishi
+- **Quiz** — server-side baholash, 8 fan × 4-11 sinf (barchasi haqiqiy savollar
+  bilan), avtomatik SubjectLevel yangilanishi, so'ralgan sinf/fan har doim
+  o'quvchining o'z profiliga mos kelishi tekshiriladi
+- **Schedule** — AI haftalik reja (dushanba-shanba, yakshanba yo'q); "Qayta
+  yaratish" faqat bajarilmagan (TODO) vazifalarni almashtiradi — tugallangan/
+  davom etayotgan tarix saqlanib qoladi; o'tib ketgan kunning tugallanmagan
+  vazifasi avtomatik "o'tkazib yuborildi" holatiga o'tadi; "Boshlash" tugmasi
+  faqat bugungi kun kartasida chiqadi
 - **Gamification** — points, streak, badge'lar
 - **Career/University** — **faqat 9-11 sinf uchun**, roadmap bilan; bu qoida frontend
   va backendning ikkalasida ham majburiy tekshiriladi
-- **Parent Dashboard** — farzand progress, AI hisobot (raw chat emas, xulosa)
+- **Parent Dashboard** — farzand progress, AI hisobot (raw chat emas, xulosa),
+  Subscription (Premium) oqimi
 - **i18n** — o'zbek (default) / rus
 - **Light/Dark mode**
 
@@ -47,12 +58,14 @@ Route → Controller → Service → Repository → Prisma → PostgreSQL
 /client
   /src
     /components/ui        — Button, Card, Input, Badge, Skeleton, EmptyState
-    /components/layout    — Sidebar, Topbar, MobileBottomNav, LanguageSwitcher, ThemeToggle
+    /components/layout    — Sidebar, Topbar, MobileBottomNav, LanguageSwitcher,
+                             ThemeToggle, NotificationPanel
     /pages/public          — Landing
     /pages/auth            — Login, Register
     /pages/student          — Dashboard, AIChat, Quiz, Schedule, Progress, Achievements,
                                Career, CareerRoadmap, Universities, Profile, Settings
-    /pages/parent           — ParentDashboard
+    /pages/parent           — ParentDashboard, Subscription
+    /pages/admin            — AdminDashboard, AdminUsers
     /lib/api.ts             — typed API client
     /store/authStore.ts     — zustand session state
     /i18n                   — uz/ru translations
@@ -67,8 +80,8 @@ Route → Controller → Service → Repository → Prisma → PostgreSQL
     schema.prisma
     seed.ts
   /tests
-    /unit                   — grade-gate, ownership, quiz-scoring (written, unexecuted here)
-    /integration            — end-to-end API tests (requires real DB, unexecuted here)
+    /unit                   — grade-gate, ownership, quiz-scoring — real DB, 172 ta test o'tadi
+    /integration            — end-to-end API testlar (haqiqiy DB talab qiladi)
 ```
 
 ## O'rnatish
@@ -126,11 +139,14 @@ Seed skripti quyidagilarni yaratadi (parol barchasi uchun bir xil):
 
 Barcha o'quvchilar `parent@demo.uz`ga bog'langan. 7/8-sinf akkountlarida Kasb
 bo'limi ko'rinmasligini, 9-11 sinfda ko'rinishini tekshiring — bu loyihaning eng
-muhim biznes qoidasi.
+muhim biznes qoidasi. 4-6 sinf uchun tayyor demo akkount yo'q, lekin ro'yxatdan
+o'tish shu sinflarni ham qabul qiladi va test savollari ularga ham mavjud —
+yangi o'quvchi ro'yxatdan o'tkazib ko'ring.
 
 ## Testlash
 
-Barcha testlar (unit + integration) haqiqiy PostgreSQL bazasiga ulanadi — bitta
+**172 test o'tadi** (`npm test`). Barcha testlar (unit + integration) haqiqiy
+PostgreSQL bazasiga ulanadi — bitta
 marta alohida test bazasini yaratish va migratsiya qilish kerak (asosiy dev
 bazangizga umuman tegmaydi, har bir test faylidan oldin to'liq tozalanadi):
 
@@ -168,5 +184,5 @@ interfeysini implement qilish va `SubscriptionService`da almashtirish.
 
 ## Kelajakdagi rivojlanish
 
-`PROJECT_STATUS.md` dagi "Next implementation phase" bo'limiga qarang —
+`PROJECT_STATUS.md` dagi "Known gaps" va "Next steps" bo'limlariga qarang —
 qolgan ishlar va aniq davom etish nuqtasi shu yerda saqlanadi.
